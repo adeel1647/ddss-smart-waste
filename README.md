@@ -134,143 +134,92 @@ original dataset.
 
 ------------------------------------------------------------------------
 
-
-
-\## Dataset Exploration and Verification
-
-
-
-An initial dataset exploration phase was conducted using Jupyter
-
-Notebook to verify:
-
-
-
-\-   Correct directory structure
-
-\-   Image readability
-
-\-   Consistency between class labels and visual content
-
-
-
-A random subset of images (5 per class) was visually inspected to
-
-confirm dataset validity.
-
-
-
-------------------------------------------------------------------------
-
-
-
-\## Baseline Model Implementation
-
-
-
-\### Model Architecture
-
-
-
-A \*\*DenseNet121\*\* convolutional neural network pretrained on
-
-\*\*ImageNet\*\* was used as the baseline classification model. Transfer
-
-learning was applied by freezing all pretrained layers and training a
-
-custom classification head.
-
-
-
-\### Training Configuration
-
-
-
-\-   Input size: 224 × 224 RGB images
-
-\-   Batch size: 16
-
-\-   Optimizer: Adam
-
-\-   Learning rate: 1e-4
-
-\-   Loss function: Categorical Cross-Entropy
-
-\-   Epochs: 5
-
-
-
-------------------------------------------------------------------------
-
-
-
-\## Baseline Model Results
-
-
-
-\-   Training accuracy: \\~83%
-
-\-   Validation accuracy: \\~72%
-
-\-   Validation loss: \\~0.68
-
-
-
-These results provide a strong baseline for further fine-tuning and
-
-optimisation.
-
-
-
-------------------------------------------------------------------------
-
-
-
-\## Current Project Status
-
-
-
-✔ Dataset selection and verification completed\\
-
-✔ Baseline DenseNet121 model trained and evaluated\\
-
-✔ Model saved for further experimentation
-
-
-
-------------------------------------------------------------------------
-
-
-
-\## Next Steps
-
-
-
-1\.  Fine-tune DenseNet121
-
-2\.  Edge optimisation
-
-3\.  IoT simulation and prediction
-
-4\.  Routing optimisation
-
-5\.  Full DDSS integration
-
-
-
-------------------------------------------------------------------------
-
-
-
-\## Reproducibility
-
-
-
-All experiments are conducted using publicly available datasets and
-
-standard deep learning libraries to ensure reproducibility and
-
-transparency.
-
-
-
+## Dataset Exploration
+Initial dataset exploration was conducted using Jupyter Notebook to:
+- Verify directory structure and image readability
+- Confirm consistency between labels and visual content
+- Visually inspect random samples (5–10 images per class)
+
+---
+
+## Model Development
+
+### Baseline Model
+- Architecture: **DenseNet121**
+- Pretrained on **ImageNet**
+- Custom classification head added
+- Base model layers frozen
+
+**Training configuration:**
+- Image size: 224 × 224
+- Batch size: 16
+- Optimizer: Adam
+- Learning rate: 1e-4
+- Epochs: 5
+
+### Baseline Results
+- Training accuracy: ~83%
+- Validation accuracy: ~72%
+
+---
+
+## Fine-Tuning
+- Total layers in DenseNet121: 427
+- Top 53 layers unfrozen for fine-tuning
+- Reduced learning rate applied
+
+### Fine-Tuned Results
+- Training accuracy: ~85%
+- Validation accuracy: ~75%
+
+---
+
+## Model Evaluation
+Evaluation was performed on a held-out test set using:
+- Accuracy
+- Precision
+- Recall
+- F1-score
+- Classification report
+
+**Overall test accuracy:** ~78%
+
+Strong performance was observed across most classes. Lower performance on the “trash” category
+is expected due to visual ambiguity and class overlap.
+
+---
+
+## Decision Support System (DDSS)
+A rule-based DDSS layer combines:
+- Waste classification output
+- Prediction confidence
+- Simulated IoT bin fill-level data
+
+**Example decisions:**
+- High confidence + high fill level → Urgent collection
+- Low confidence → Manual inspection
+- Normal fill level → Scheduled collection
+
+This transforms raw predictions into actionable operational decisions.
+
+---
+
+## Current Project Status
+✔ Dataset selection and verification completed  
+✔ Baseline and fine-tuned DenseNet121 models trained  
+✔ Model evaluation completed  
+✔ DDSS decision logic implemented  
+
+---
+
+## Next Steps
+1. IoT data simulation or hardware integration
+2. Real-time inference pipeline
+3. End-to-end DDSS system demonstration
+4. Dissertation writing and final analysis
+
+---
+
+## Reproducibility
+All experiments use publicly available datasets and standard machine learning libraries to ensure
+transparency, reproducibility, and academic integrity.
