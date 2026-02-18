@@ -1,225 +1,149 @@
-\# Smart Waste Management DDSS
+# Smart Waste Management DDSS
 
+## Project Overview
 
+This project implements a **Data-Driven Decision Support System (DDSS)**
+for intelligent waste classification in smart-city environments.
 
-\## Project Overview
+The system integrates:
 
+-   Computer Vision (Deep Learning-based waste classification)
+-   Transfer Learning using DenseNet121
+-   Fine-tuning and regularisation techniques
+-   Rule-based Decision Support Logic
 
-
-This project implements a \*\*Data-Driven Decision Support System (DDSS)\*\*
-
-for smart waste management. The system integrates \*\*computer vision\*\*,
-
-\*\*predictive analytics\*\*, and \*\*route optimisation\*\* to support
-
-efficient and adaptive waste collection operations in smart-city
-
-environments.
-
-
-
-The overall aim is to reduce unnecessary waste collection trips, prevent
-
-bin overflow, and improve operational efficiency through data-driven
-
-decision-making.
-
-
+The objective is to improve waste sorting accuracy and transform model
+predictions into actionable waste management decisions.
 
 ------------------------------------------------------------------------
 
+## Dataset Description
 
+### TrashNet Dataset
 
-\## Dataset Description
+-   **Source:** Stanford University (CS229 Project)
+-   **Authors:** Gary Thung and Mindy Yang
+-   **Repository:** https://github.com/garythung/trashnet
+-   **Classes:** 6 (Cardboard, Glass, Metal, Paper, Plastic, Trash)
+-   **Total Images:** \~2,500
+-   **Format:** JPEG
+-   **Labeling:** Manually annotated
 
+Dataset structure:
 
+data/ └── images/ ├── cardboard/ ├── glass/ ├── metal/ ├── paper/ ├──
+plastic/ └── trash/
 
-\### Waste Image Dataset
-
-
-
-This project uses the \*\*TrashNet\*\* dataset for waste image
-
-classification.
-
-
-
-\-   \*\*Source:\*\* Stanford University (CS229 Project)
-
-\-   \*\*Authors:\*\* Gary Thung and Mindy Yang
-
-\-   \*\*Public Repository:\*\* https://github.com/garythung/trashnet
-
-\-   \*\*Domain:\*\* Academic research and education
-
-
-
-\### Dataset Characteristics
-
-
-
-\-   \*\*Number of classes:\*\* 6
-
-&nbsp;   -   Cardboard
-
-&nbsp;   -   Glass
-
-&nbsp;   -   Metal
-
-&nbsp;   -   Paper
-
-&nbsp;   -   Plastic
-
-&nbsp;   -   Trash
-
-\-   \*\*Images per class:\*\* Approximately 400--600
-
-\-   \*\*Image format:\*\* JPEG
-
-\-   \*\*Labelling:\*\* Manually labelled
-
-
-
-\### Rationale for Dataset Selection
-
-
-
-TrashNet is widely cited in academic literature for waste classification
-
-tasks and has been used as a benchmark dataset in multiple peer-reviewed
-
-studies. Its class structure, image quality, and public availability
-
-make it suitable for transfer learning experiments using convolutional
-
-neural networks such as \*\*DenseNet121\*\*.
-
-
-
-\### Dataset Structure
-
-
-
-The dataset has been structured to align with standard Keras and
-
-TensorFlow data loaders:
-
-
-
-&nbsp;   data/
-
-&nbsp;   └── images/
-
-&nbsp;       ├── cardboard/
-
-&nbsp;       ├── glass/
-
-&nbsp;       ├── metal/
-
-&nbsp;       ├── paper/
-
-&nbsp;       ├── plastic/
-
-&nbsp;       └── trash/
-
-
-
-All preprocessing steps (resizing, normalisation, and augmentation) are
-
-performed within the training pipeline to preserve the integrity of the
-
-original dataset.
-
-
+All preprocessing (resizing, normalization, augmentation) is handled
+during training.
 
 ------------------------------------------------------------------------
-
-## Dataset Exploration
-Initial dataset exploration was conducted using Jupyter Notebook to:
-- Verify directory structure and image readability
-- Confirm consistency between labels and visual content
-- Visually inspect random samples (5–10 images per class)
-
----
 
 ## Model Development
 
 ### Baseline Model
-- Architecture: **DenseNet121**
-- Pretrained on **ImageNet**
-- Custom classification head added
-- Base model layers frozen
 
-**Training configuration:**
-- Image size: 224 × 224
-- Batch size: 16
-- Optimizer: Adam
-- Learning rate: 1e-4
-- Epochs: 5
+-   Architecture: DenseNet121 (ImageNet pretrained)
+-   Base model frozen
+-   Custom classification head added
 
-### Baseline Results
-- Training accuracy: ~83%
-- Validation accuracy: ~72%
+**Training Configuration** - Image size: 224 × 224 - Batch size: 16 -
+Optimizer: Adam - Learning rate: 1e-4 - Epochs: 5
 
----
+**Baseline Results** - Training Accuracy: \~87% - Validation Accuracy:
+\~79%
+
+------------------------------------------------------------------------
 
 ## Fine-Tuning
-- Total layers in DenseNet121: 427
-- Top 53 layers unfrozen for fine-tuning
-- Reduced learning rate applied
 
-### Fine-Tuned Results
-- Training accuracy: ~85%
-- Validation accuracy: ~75%
+-   Total layers: 427
+-   Last 30 layers unfrozen
+-   Learning rate reduced to 3e-5
+-   Early stopping applied
+-   Learning rate scheduling enabled
+-   Class weights applied to handle imbalance
 
----
+**Fine-Tuned Results** - Training Accuracy: \~92--93% - Validation
+Accuracy: \~84--85% - Best Validation Accuracy: 85%
+
+------------------------------------------------------------------------
+
+## Final Model
+
+Final deployed model:
+
+densenet121_final.h5
+
+Includes: - Transfer learning - Controlled fine-tuning -
+Regularisation - Learning rate scheduling - Early stopping
+
+------------------------------------------------------------------------
 
 ## Model Evaluation
-Evaluation was performed on a held-out test set using:
-- Accuracy
-- Precision
-- Recall
-- F1-score
-- Classification report
 
-**Overall test accuracy:** ~78%
+Evaluation metrics: - Accuracy - Precision - Recall - F1-score -
+Confusion Matrix - Classification Report
 
-Strong performance was observed across most classes. Lower performance on the “trash” category
-is expected due to visual ambiguity and class overlap.
+**Final Test Accuracy:** 85%\
+**Macro F1-score:** 0.84\
+**Weighted F1-score:** 0.85
 
----
+Strong performance across most classes, with improved recall for the
+Trash category.
+
+------------------------------------------------------------------------
 
 ## Decision Support System (DDSS)
-A rule-based DDSS layer combines:
-- Waste classification output
-- Prediction confidence
-- Simulated IoT bin fill-level data
 
-**Example decisions:**
-- High confidence + high fill level → Urgent collection
-- Low confidence → Manual inspection
-- Normal fill level → Scheduled collection
+A rule-based layer converts predictions into operational waste handling
+decisions.
 
-This transforms raw predictions into actionable operational decisions.
+### Confidence Rule
 
----
+-   Confidence ≥ 0.60 → Automatic action
+-   Confidence \< 0.60 → Manual inspection required
+
+### Waste Handling Actions
+
+  Class       Action
+  ----------- -------------------------------
+  Cardboard   Send to recycling facility
+  Paper       Send to recycling facility
+  Glass       Glass recycling process
+  Metal       Metal recovery process
+  Plastic     Plastic sorting and recycling
+  Trash       Landfill disposal
+
+------------------------------------------------------------------------
 
 ## Current Project Status
-✔ Dataset selection and verification completed  
-✔ Baseline and fine-tuned DenseNet121 models trained  
-✔ Model evaluation completed  
-✔ DDSS decision logic implemented  
 
----
+✔ Dataset validated\
+✔ Baseline model trained\
+✔ Fine-tuned model optimized\
+✔ Final model selected (85% accuracy)\
+✔ Evaluation pipeline implemented\
+✔ DDSS logic integrated
+
+------------------------------------------------------------------------
 
 ## Next Steps
-1. IoT data simulation or hardware integration
-2. Real-time inference pipeline
-3. End-to-end DDSS system demonstration
-4. Dissertation writing and final analysis
 
----
+1.  IoT bin fill-level integration\
+2.  Route optimisation modeling\
+3.  Real-time inference pipeline\
+4.  Full DDSS architecture integration\
+5.  Dissertation finalization
+
+------------------------------------------------------------------------
 
 ## Reproducibility
-All experiments use publicly available datasets and standard machine learning libraries to ensure
-transparency, reproducibility, and academic integrity.
+
+-   Public dataset (TrashNet)
+-   TensorFlow / Keras framework
+-   Structured training pipeline
+-   Standard evaluation metrics
+
+All experiments are reproducible and aligned with academic research
+standards.
