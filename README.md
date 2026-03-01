@@ -197,6 +197,8 @@ Weighted F1-score: 0.85
 Strong performance across most classes.
 Improved recall observed for the “Trash” category after class weighting.
 
+
+
 IoT Bin Integration
 
 Simulated smart bins generate:
@@ -307,6 +309,164 @@ Current Project Status
 ✔ Route visualisation implemented
 
 System prototype is fully operational.
+
+
+
+## System Architecture (5-Layer Integrated Framework)
+
+### 1️⃣ Computer Vision Layer
+
+-   DenseNet121 (ImageNet pretrained)
+-   Controlled fine-tuning (last 30 layers unfrozen)
+-   Class-weight balancing
+-   Early stopping + LR scheduling
+
+Performance: - Test Accuracy: 85% - Macro F1-score: 0.84 - Weighted
+F1-score: 0.85
+
+Classes: Cardboard, Glass, Metal, Paper, Plastic, Trash
+
+------------------------------------------------------------------------
+
+### 2️⃣ Predictive Forecasting Layer (ML-Based)
+
+Random Forest regression model predicting bin fill level 6 hours ahead.
+
+Features: - fill_level - hour_of_day - day - weekend
+
+Performance: - MAE: 2.59 - R²: 0.98
+
+Model saved as: fill_forecast_rf_weekend.pkl
+
+This enables proactive collection planning instead of threshold-based
+reactive scheduling.
+
+------------------------------------------------------------------------
+
+### 3️⃣ IoT Simulation Layer
+
+Simulates smart bin sensor data including: - Fill level (%) -
+Sector-based location - Time since last collection - Dynamic waste
+accumulation - Simulated collection reset events
+
+------------------------------------------------------------------------
+
+### 4️⃣ Decision Support Layer
+
+Priority Score = 0.5 × Predicted Fill Level\
++ 0.3 × Time Since Collection\
++ 0.2 × Prediction Uncertainty
+
+This transforms AI predictions into operational urgency metrics.
+
+------------------------------------------------------------------------
+
+### 5️⃣ Route Optimisation Layer
+
+Implements:
+
+-   Priority-only routing
+-   Hybrid Priority + Distance routing
+-   Capacity-constrained vehicle routing
+-   Depot-based trip splitting
+-   Real road-network routing using OSMnx
+-   Multi-run statistical validation
+
+Score function: Score = Distance / (Priority + ε)
+
+------------------------------------------------------------------------
+
+## Routing Performance
+
+### Single Run Example
+
+-   Priority-only: 16.85 km
+-   Priority + Distance: 12.35 km
+-   Improvement: \~27%
+
+### Multi-Run Statistical Validation (10 runs)
+
+-   Priority-only Mean Distance: 20.06 km
+-   Priority + Distance Mean Distance: 11.79 km
+-   Average Distance Reduction: 40.24%
+-   Standard Deviation: 8.25%
+
+This demonstrates statistically robust improvement.
+
+------------------------------------------------------------------------
+
+## Capacity-Constrained Vehicle Routing
+
+Truck capacity: 300 units
+
+System: - Splits routes into multiple trips - Returns to depot when
+full - Maximises load utilisation
+
+Example: - Total Trips: 3 - Total Distance: 16.17 km
+
+------------------------------------------------------------------------
+
+## Environmental Impact Modelling
+
+Distance savings converted into fuel and CO₂ savings.
+
+Assumptions tested: 30, 45, 60 L per 100 km
+
+Mean CO₂ Saved Per Run: - 30 L/100km → 6.15 kg - 45 L/100km → 9.22 kg -
+60 L/100km → 12.29 kg
+
+Annual CO₂ Savings (1 route/day):
+
+-   30 L/100km → 2.24 tonnes/year
+-   45 L/100km → 3.36 tonnes/year
+-   60 L/100km → 4.49 tonnes/year
+
+Environmental savings remain robust under sensitivity analysis.
+
+------------------------------------------------------------------------
+
+## Real-Time Adaptive Simulation
+
+The system dynamically:
+
+-   Updates fill levels over time
+-   Forecasts future fill
+-   Recalculates priorities
+-   Displays Top 3 urgent bins
+-   Triggers critical alerts (\>90%)
+-   Simulates collection reset
+
+Demonstrates fully adaptive DDSS behaviour.
+
+------------------------------------------------------------------------
+
+## Road-Network Routing (OSMnx Integration)
+
+-   Uses real road graph
+-   Shortest path routing
+-   Realistic street-level routes
+-   Capacity-constrained trip visualisation
+
+Adds real-world operational realism.
+
+------------------------------------------------------------------------
+
+## Current System Status
+
+✔ DenseNet121 trained & fine-tuned\
+✔ ML forecasting implemented\
+✔ Multi-factor priority scoring\
+✔ Distance-aware routing\
+✔ Capacity-constrained VRP\
+✔ Real road-network routing\
+✔ Statistical validation\
+✔ Environmental impact modelling\
+✔ Real-time adaptive simulation\
+✔ Full route visualisation
+
+System prototype is fully operational and MSc-level complete.
+
+
 
 Future Work
 
