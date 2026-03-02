@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -21,7 +23,19 @@ from app.api.routes.routing_latest import router as routing_latest_router
 from app.services.model_store import ModelStore
 from app.services.classifier import ClassifierService
 from app.services.forecaster import ForecastService
+
 from app.db.init_db import init_db
+from app.db.session import engine  # ✅ engine exists in your init_db.py, so use it here too
+
+
+async def ensure_sequences() -> None:
+    """
+    Ensure DB sequences exist (useful if DB is dropped/recreated).
+    Uses engine directly to avoid depending on session-maker naming.
+    """
+    async with engine.begin() as conn:
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS public.bin_seq START 1;"))
+
 
 def create_app() -> FastAPI:
     setup_logging()
@@ -49,9 +63,15 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
+        # 1) Create tables
         await init_db()
-        log.info("Database initialized.")
+        log.info("Database initialized (tables created).")
 
+        # 2) Ensure sequences
+        await ensure_sequences()
+        log.info("Database sequences ensured (public.bin_seq).")
+
+        # 3) Load models
         classifier_path = os.path.abspath(settings.classifier_model_path)
         forecast_path = os.path.abspath(settings.forecast_model_path)
 
@@ -74,5 +94,6 @@ def create_app() -> FastAPI:
             log.warning("Forecast model not found at %s", forecast_path)
 
     return app
+
 
 app = create_app()

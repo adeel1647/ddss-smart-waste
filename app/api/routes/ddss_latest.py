@@ -28,8 +28,8 @@ async def latest_ddss(session: AsyncSession = Depends(get_session)):
             last_collection_hours=float(it.last_collection_hours),
             priority_score=float(it.priority_score),
             alerts=json.loads(it.alerts_json),
-            meta={"sector": run.sector_filter},
+            meta={"postcode": run.postcode_filter},
         )
         for it in items
     ]
-    return LatestDDSSResponse(run_id=run.id, ts=run.ts, sector_filter=run.sector_filter, ranked_bins=ranked)
+    return LatestDDSSResponse(run_id=run.id, ts=run.ts, postcode_filter=run.postcode_filter, ranked_bins=ranked)

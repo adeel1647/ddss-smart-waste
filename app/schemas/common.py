@@ -1,24 +1,35 @@
-from pydantic import BaseModel
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
+from pydantic import BaseModel, Field
 
-class BinBase(BaseModel):
-    bin_id: str
-    sector: Optional[str] = None
+
+# ---------- BINS ----------
+
+class BinCreate(BaseModel):
+    postcode: str | None = Field(default=None, max_length=16)
     lat: float
     lon: float
     active: bool = True
 
-class BinCreate(BinBase):
-    pass
 
-class BinOut(BinBase):
+class BinOut(BaseModel):
+    bin_id: str
+    postcode: str | None = None
+    lat: float
+    lon: float
+    active: bool
     created_at: datetime
+
+
+# ---------- TELEMETRY ----------
 
 class TelemetryCreate(BaseModel):
     ts: Optional[datetime] = None
     fill_level: float
     last_collection_hours: float
+
 
 class TelemetryOut(BaseModel):
     id: int

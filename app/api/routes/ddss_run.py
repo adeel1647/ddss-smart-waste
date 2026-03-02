@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -18,16 +18,20 @@ from app.services.priority import PriorityInputs, compute_priority_score
 router = APIRouter(tags=["ddss"])
 
 @router.post("/ddss/run", response_model=DDSSRunResponse)
-async def run_ddss(req: DDSSRunRequest, session: AsyncSession = Depends(get_session)):
-    bins = await list_bins(session, sector=req.sector, active=True, limit=req.limit)
+async def run_ddss(
+    req: DDSSRunRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    bins = await list_bins(session, postcode=req.postcode, active=True, limit=req.limit)
     if not bins:
         raise HTTPException(status_code=404, detail="No active bins found (register bins first).")
 
-    run = await create_run(session, sector_filter=req.sector)
-    forecaster: ForecastService = router.app.state.forecast_service
+    run = await create_run(session, postcode_filter=req.postcode)
+    forecaster: ForecastService = request.app.state.forecast_service
 
     # Compute decisions and persist
-    for b in bins:
+    for b in bins:  
         t = await latest_telemetry(session, b.bin_id)
         if t is None:
             continue
@@ -105,9 +109,9 @@ async def run_ddss(req: DDSSRunRequest, session: AsyncSession = Depends(get_sess
             last_collection_hours=float(it.last_collection_hours),
             priority_score=float(it.priority_score),
             alerts=json.loads(it.alerts_json),
-            meta={"sector": req.sector},
+            meta={"postcode": req.postcode},
         )
         for it in items
     ]
 
-    return DDSSRunResponse(run_id=run.id, ts=run.ts, sector_filter=run.sector_filter, ranked_bins=ranked)
+    return DDSSRunResponse(run_id=run.id, ts=run.ts, postcode_filter=run.postcode_filter, ranked_bins=ranked)

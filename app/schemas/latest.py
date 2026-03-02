@@ -7,7 +7,7 @@ from app.schemas.routing import Trip
 class LatestDDSSResponse(BaseModel):
     run_id: int
     ts: datetime
-    sector_filter: Optional[str] = None
+    postcode_filter: Optional[str] = None
     ranked_bins: List[DDSSBinDecision]
 
 class LatestRouteResponse(BaseModel):

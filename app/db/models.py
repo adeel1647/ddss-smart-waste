@@ -12,7 +12,7 @@ class Bin(Base):
     __tablename__ = "bins"
 
     bin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    sector: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    postcode: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lon: Mapped[float] = mapped_column(Float, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -52,7 +52,7 @@ class DecisionRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True)
-    sector_filter: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    postcode_filter: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     items: Mapped[List["DecisionItem"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 

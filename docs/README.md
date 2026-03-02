@@ -37,7 +37,7 @@ Simulates real-world bin sensor data:
 
 Fill level (%)
 
-Location (sector)
+Location (postcode)
 
 Time since last collection
 
@@ -205,7 +205,7 @@ Simulated smart bins generate:
 
 Fill level (%)
 
-Sector location
+postcode location
 
 Hours since last collection
 
@@ -346,7 +346,7 @@ reactive scheduling.
 ### 3️⃣ IoT Simulation Layer
 
 Simulates smart bin sensor data including: - Fill level (%) -
-Sector-based location - Time since last collection - Dynamic waste
+postcode-based location - Time since last collection - Dynamic waste
 accumulation - Simulated collection reset events
 
 ------------------------------------------------------------------------

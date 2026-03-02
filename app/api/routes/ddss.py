@@ -17,7 +17,7 @@ async def process_bin(
     bin_id: str,
     fill_level: float,
     last_collection_hours: float,
-    sector: str | None = None,
+    postcode: str | None = None,
     growth_rate: float = 1.0,
     file: UploadFile | None = File(default=None),
 ):
@@ -84,5 +84,5 @@ async def process_bin(
         last_collection_hours=last_collection_hours,
         priority_score=priority,
         alerts=alerts,
-        meta={"sector": sector},
+        meta={"postcode": postcode},
     )

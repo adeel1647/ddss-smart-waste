@@ -31,7 +31,7 @@ Open docs:
 ### A) Register bins (one time)
 POST `/api/v1/bins`
 ```json
-{ "bin_id":"bin_1", "sector":"A", "lat":51.5074, "lon":-0.1278, "active":true }
+{ "bin_id":"bin_1", "postcode":"A", "lat":51.5074, "lon":-0.1278, "active":true }
 ```
 
 ### B) Ingest telemetry (repeat)
@@ -46,7 +46,7 @@ POST `/api/v1/classify?bin_id=bin_1` with multipart image.
 ### D) Run DDSS ranking
 POST `/api/v1/ddss/run`
 ```json
-{ "sector": "A", "limit": 200 }
+{ "postcode": "A", "limit": 200 }
 ```
 
 ### E) Plan route from latest DDSS results

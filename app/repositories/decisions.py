@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from app.db.models import DecisionRun, DecisionItem
 
-async def create_run(session: AsyncSession, sector_filter: str | None) -> DecisionRun:
-    r = DecisionRun(sector_filter=sector_filter)
+async def create_run(session: AsyncSession, postcode_filter: str | None) -> DecisionRun:
+    r = DecisionRun(postcode_filter=postcode_filter)
     session.add(r)
     await session.commit()
     await session.refresh(r)

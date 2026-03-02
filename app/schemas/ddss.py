@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 class DDSSRunRequest(BaseModel):
-    sector: Optional[str] = None
+    postcode: Optional[str] = None
     limit: int = Field(default=200, ge=1, le=5000)
 
 class DDSSBinDecision(BaseModel):
@@ -21,5 +21,5 @@ class DDSSBinDecision(BaseModel):
 class DDSSRunResponse(BaseModel):
     run_id: int
     ts: datetime
-    sector_filter: Optional[str] = None
+    postcode_filter: Optional[str] = None
     ranked_bins: List[DDSSBinDecision]
