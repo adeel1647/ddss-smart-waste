@@ -19,6 +19,10 @@ from app.api.routes.ddss_run import router as ddss_run_router
 from app.api.routes.ddss_latest import router as ddss_latest_router
 from app.api.routes.routing import router as routing_router
 from app.api.routes.routing_latest import router as routing_latest_router
+from app.api.routes.routing_vrp import router as routing_vrp_router
+
+from app.api.routes.auth import router as auth_router
+from app.api.routes.users import router as users_router
 
 from app.services.model_store import ModelStore
 from app.services.classifier import ClassifierService
@@ -60,6 +64,10 @@ def create_app() -> FastAPI:
     app.include_router(ddss_latest_router, prefix=prefix)
     app.include_router(routing_router, prefix=prefix)
     app.include_router(routing_latest_router, prefix=prefix)
+    app.include_router(routing_vrp_router, prefix=prefix)
+    app.include_router(auth_router, prefix=prefix)
+    app.include_router(users_router, prefix=prefix)
+    
 
     @app.on_event("startup")
     async def _startup() -> None:
