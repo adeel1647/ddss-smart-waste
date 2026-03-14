@@ -9,7 +9,7 @@ from app.repositories.users import (
     set_user_password,
     create_user,
 )
-from app.schemas.users import UserCreate, UserOut
+from app.schemas.users import UserOut
 from app.core.security import (
     hash_password,
     verify_password,
@@ -49,17 +49,15 @@ class ForgotIn(BaseModel):
 
 @router.post("/forgot-password")
 async def forgot_password(payload: ForgotIn, db: AsyncSession = Depends(get_session)):
-    # Always return ok to prevent account enumeration
     user = await get_user_by_email(db, payload.email.lower().strip())
-    if not user:
-        return {"ok": True}
 
-    reset_token = create_reset_token(subject=str(user.id))
+    if user:
+        reset_token = create_reset_token(subject=str(user.id))
+        # TODO: send reset_token by email provider in production
+        # For local development only:
+        print(f"Password reset token for user {user.email}: {reset_token}")
 
-    # Production: email this token link to user (SMTP/provider)
-    # Dev: return token
-    return {"ok": True, "dev_reset_token": reset_token}
-
+    return {"message": "If an account with that email exists, a reset link has been sent."}
 
 class ResetIn(BaseModel):
     token: str
@@ -80,14 +78,13 @@ async def reset_password(payload: ResetIn, db: AsyncSession = Depends(get_sessio
     return {"ok": True}
 
 
-class UserCreate(BaseModel):
+class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = None
 
-
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register_user(payload: UserCreate, db: AsyncSession = Depends(get_session)):
+async def register_user(payload: RegisterIn, db: AsyncSession = Depends(get_session)):
 
     existing = await get_user_by_email(db, payload.email.lower())
     if existing:

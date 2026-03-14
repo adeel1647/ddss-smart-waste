@@ -20,7 +20,6 @@ from app.api.routes.ddss_latest import router as ddss_latest_router
 from app.api.routes.routing import router as routing_router
 from app.api.routes.routing_latest import router as routing_latest_router
 from app.api.routes.routing_vrp import router as routing_vrp_router
-
 from app.api.routes.auth import router as auth_router
 from app.api.routes.users import router as users_router
 
@@ -29,13 +28,12 @@ from app.services.classifier import ClassifierService
 from app.services.forecaster import ForecastService
 
 from app.db.init_db import init_db
-from app.db.session import engine  # ✅ engine exists in your init_db.py, so use it here too
+from app.db.session import engine
 
 
 async def ensure_sequences() -> None:
     """
-    Ensure DB sequences exist (useful if DB is dropped/recreated).
-    Uses engine directly to avoid depending on session-maker naming.
+    Ensure DB sequences exist if needed.
     """
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS public.bin_seq START 1;"))
@@ -55,6 +53,9 @@ def create_app() -> FastAPI:
     )
 
     prefix = settings.api_prefix
+    if not prefix.startswith("/"):
+        raise ValueError(f"API_PREFIX must start with '/'. Current value: {prefix!r}")
+
     app.include_router(health_router, prefix=prefix)
     app.include_router(bins_router, prefix=prefix)
     app.include_router(telemetry_router, prefix=prefix)
@@ -67,38 +68,36 @@ def create_app() -> FastAPI:
     app.include_router(routing_vrp_router, prefix=prefix)
     app.include_router(auth_router, prefix=prefix)
     app.include_router(users_router, prefix=prefix)
-    
 
     @app.on_event("startup")
     async def _startup() -> None:
-        # 1) Create tables
+        # DB connectivity check only
         await init_db()
-        log.info("Database initialized (tables created).")
+        log.info("Database connection verified.")
 
-        # 2) Ensure sequences
+        # Optional sequence safety
         await ensure_sequences()
         log.info("Database sequences ensured (public.bin_seq).")
 
-        # 3) Load models
+        # Load models
         classifier_path = os.path.abspath(settings.classifier_model_path)
         forecast_path = os.path.abspath(settings.forecast_model_path)
 
         class_names = ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
 
+        app.state.classifier_service = ClassifierService(class_names=class_names)
+        app.state.forecast_service = ForecastService()
+
         if os.path.exists(classifier_path):
             ModelStore.set_classifier(ClassifierService.load(classifier_path))
-            app.state.classifier_service = ClassifierService(class_names=class_names)
             log.info("Loaded classifier model from %s", classifier_path)
         else:
-            app.state.classifier_service = ClassifierService(class_names=class_names)
             log.warning("Classifier model not found at %s", classifier_path)
 
         if os.path.exists(forecast_path):
             ModelStore.set_forecaster(ForecastService.load(forecast_path))
-            app.state.forecast_service = ForecastService()
             log.info("Loaded forecast model from %s", forecast_path)
         else:
-            app.state.forecast_service = ForecastService()
             log.warning("Forecast model not found at %s", forecast_path)
 
     return app

@@ -1,34 +1,47 @@
-from __future__ import annotations
-
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.core.security import decode_access_token
+from app.core.config import settings
 from app.db.session import get_session
-from app.repositories.users import get_user_by_id
+from app.db.models import User
 
-bearer = HTTPBearer(auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 async def get_current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(bearer),
-    db: AsyncSession = Depends(get_session),
+    token: str = Depends(oauth2_scheme),
+    session: AsyncSession = Depends(get_session),
 ):
-    if creds is None or not creds.credentials:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
     try:
-        payload = decode_access_token(creds.credentials)
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
         user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
+        if user_id is None:
+            raise credentials_exception
     except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise credentials_exception
 
-    user = await get_user_by_id(db, int(user_id))
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+    result = await session.execute(select(User).where(User.id == int(user_id)))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        raise credentials_exception
 
     return user
+
+
+async def require_admin(current_user: User = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user

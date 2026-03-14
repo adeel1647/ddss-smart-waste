@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from app.schemas.forecast import ForecastRequest, ForecastResponse
 from app.services.forecaster import ForecastService, ForecastInput
 
 router = APIRouter(tags=["forecast"])
 
 @router.post("/forecast", response_model=ForecastResponse)
-def forecast(req: ForecastRequest):
+def forecast(req: ForecastRequest, request: Request):
     svc: ForecastService = request.app.state.forecast_service
     fi = ForecastInput(
         bin_id=req.bin_id,

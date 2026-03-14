@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from app.db.session import engine
 from app.db.models import Base
 

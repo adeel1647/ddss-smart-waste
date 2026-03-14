@@ -2,19 +2,17 @@ from __future__ import annotations
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, field_validator
 from typing import List
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "ddss-smart-waste"
-    api_prefix: str = "/api/v1"
+    app_name: str
+    api_prefix: str
 
     # Database (async SQLAlchemy / Postgres)
-    database_url: str = Field(default="postgresql+asyncpg://postgres:postgres@localhost:5432/ddss")
-
-    # CORS
-    cors_origins: List[str] = Field(default_factory=lambda: ["*"])
+    # database_url: str = Field(default="postgresql+asyncpg://postgres:postgres@localhost:5432/ddss")
+    database_url: str
 
     # Model paths
     classifier_model_path: str = "models/densenet121_final.keras"
@@ -39,9 +37,22 @@ class Settings(BaseSettings):
     low_confidence_threshold: float = 0.6
 
     #Authentication
-    jwt_secret: str = os.getenv("JWT_SECRET", "053e22b1b73247c293a7e258645bd9030a34f08ffdf9c2496a294fd9a782df5b")
-    jwt_algorithm: str = os.getenv("JWT_ALGORITHM", "HS256")
-    jwt_expires_minutes: int = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
-    reset_token_expires_minutes: int = int(os.getenv("RESET_TOKEN_EXPIRES_MINUTES", "30"))
+    jwt_secret: str
+    jwt_algorithm: str
+    access_token_expire_minutes: int = 60
+    reset_token_expires_minutes: int = 30
+    # CORS
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://v0-ddss-hull.vercel.app",
+    ]
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        if len(v.strip()) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long")
+        return v.strip()
 
 settings = Settings()
