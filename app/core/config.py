@@ -55,4 +55,12 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET must be at least 32 characters long")
         return v.strip()
 
+    resend_api_key: str | None = Field(default=None, alias="resend_api_key")
+    mail_from: str = Field(default="DDSS Smart Waste <noreply@yourdomain.com>", alias="MAIL_FROM")
+    app_base_url: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://v0-ddss-hull.vercel.app",
+    ]
+
 settings = Settings()

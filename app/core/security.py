@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+import secrets
+import hashlib
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -77,3 +78,15 @@ def decode_reset_token(token: str) -> str | None:
 
 def decode_token(token: str) -> dict:
     return decode_access_token(token)
+
+
+def generate_verification_code() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+
+def hash_verification_code(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def verify_verification_code(code: str, code_hash: str) -> bool:
+    return hash_verification_code(code) == code_hash
