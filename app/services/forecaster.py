@@ -7,9 +7,17 @@ import pandas as pd
 from app.services.model_store import ModelStore
 
 DEFAULT_FEATURES = [
-    "fill_level", "hour_of_day", "day", "weekend", "growth_rate",
-    "lag_1", "lag_2", "lag_3", "rolling_mean_3"
+    "fill_level",
+    "hour_of_day",
+    "day",
+    "weekend",
+    "growth_rate",
+    "lag_1",
+    "lag_2",
+    "lag_3",
+    "rolling_mean_3",
 ]
+
 
 @dataclass
 class ForecastInput:
@@ -21,6 +29,7 @@ class ForecastInput:
     growth_rate: float
     lags: List[float]
     rolling_mean_3: Optional[float] = None
+
 
 class ForecastService:
     @staticmethod
@@ -37,12 +46,18 @@ class ForecastService:
         model = ModelStore.get_forecaster()
         if model is None:
             raise RuntimeError("Forecast model not loaded.")
+
         names = self._feature_names(model)
 
         lags = (fi.lags or [])[-3:]
         while len(lags) < 3:
             lags.insert(0, fi.fill_level)
-        rolling = fi.rolling_mean_3 if fi.rolling_mean_3 is not None else float(np.mean(lags))
+
+        rolling = (
+            fi.rolling_mean_3
+            if fi.rolling_mean_3 is not None
+            else float(np.mean(lags))
+        )
 
         row = {
             "fill_level": fi.fill_level,
@@ -55,6 +70,13 @@ class ForecastService:
             "lag_3": lags[-3],
             "rolling_mean_3": rolling,
         }
+
         X = pd.DataFrame([row])[names]
-        pred = float(model.predict(X)[0])
-        return float(max(0.0, min(100.0, pred)))
+        raw_pred = float(model.predict(X)[0])
+
+        # Clamp to physical limits first
+        pred = max(0.0, min(100.0, raw_pred))
+
+        pred = max(float(fi.fill_level), pred)
+
+        return round(pred, 2)

@@ -30,6 +30,12 @@ from app.services.forecaster import ForecastService
 from app.db.init_db import init_db
 from app.db.session import engine
 
+from app.api.routes.alerts import router as alerts_router
+from app.api.routes.ops import router as ops_router
+from app.api.routes.map import router as map_router
+from app.api.routes.analytics import router as analytics_router
+from app.api.routes.routing_metrics import router as routing_metrics_router
+from app.api.routes.public import router as public_router
 
 async def ensure_sequences() -> None:
     """
@@ -68,6 +74,12 @@ def create_app() -> FastAPI:
     app.include_router(routing_vrp_router, prefix=prefix)
     app.include_router(auth_router, prefix=prefix)
     app.include_router(users_router, prefix=prefix)
+    app.include_router(alerts_router, prefix=prefix)
+    app.include_router(ops_router, prefix=prefix)
+    app.include_router(map_router, prefix=prefix)
+    app.include_router(analytics_router, prefix=prefix)
+    app.include_router(routing_metrics_router, prefix=prefix)
+    app.include_router(public_router, prefix=prefix)
 
     @app.on_event("startup")
     async def _startup() -> None:

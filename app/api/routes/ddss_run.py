@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.services.alerts import generate_alerts_for_run
 from app.core.config import settings
 from app.db.session import get_session
 from app.repositories.bins import list_bins
@@ -97,6 +97,8 @@ async def run_ddss(
             alerts=alerts,
         )
 
+    await generate_alerts_for_run(session, run.id)
+
     items = await list_items_for_run(session, run.id)
     ranked = [
         DDSSBinDecision(
@@ -114,4 +116,9 @@ async def run_ddss(
         for it in items
     ]
 
-    return DDSSRunResponse(run_id=run.id, ts=run.ts, postcode_filter=run.postcode_filter, ranked_bins=ranked)
+    return DDSSRunResponse(
+        run_id=run.id,
+        ts=run.ts,
+        postcode_filter=run.postcode_filter,
+        ranked_bins=ranked,
+    )

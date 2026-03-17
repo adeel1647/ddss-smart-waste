@@ -131,3 +131,34 @@ class PasswordResetCode(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship()
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    bin_id: Mapped[str] = mapped_column(ForeignKey("bins.bin_id", ondelete="CASCADE"), index=True)
+    decision_run_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("decision_runs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    alert_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    message: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
+
+    meta_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    bin: Mapped["Bin"] = relationship()
+    decision_run: Mapped[Optional["DecisionRun"]] = relationship()
+
+    __table_args__ = (
+        Index("ix_alerts_bin_status_created", "bin_id", "status", "created_at"),
+    )
