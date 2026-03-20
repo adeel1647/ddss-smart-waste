@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from app.db.models import DecisionRun, DecisionItem
+
+from app.db.models import DecisionItem, DecisionRun
+
 
 async def create_run(session: AsyncSession, postcode_filter: str | None) -> DecisionRun:
     r = DecisionRun(postcode_filter=postcode_filter)
@@ -11,6 +13,7 @@ async def create_run(session: AsyncSession, postcode_filter: str | None) -> Deci
     await session.commit()
     await session.refresh(r)
     return r
+
 
 async def add_item(
     session: AsyncSession,
@@ -42,9 +45,42 @@ async def add_item(
     await session.refresh(item)
     return item
 
+
+async def create_run_with_items(
+    session: AsyncSession,
+    *,
+    postcode_filter: str | None,
+    items: list[dict],
+) -> tuple[DecisionRun, list[DecisionItem]]:
+    run = DecisionRun(postcode_filter=postcode_filter)
+    session.add(run)
+    await session.flush()
+
+    rows: list[DecisionItem] = []
+    for payload in items:
+        row = DecisionItem(
+            run_id=run.id,
+            bin_id=payload['bin_id'],
+            predicted_class=payload['predicted_class'],
+            confidence=float(payload['confidence']),
+            uncertainty=float(payload['uncertainty']),
+            current_fill=float(payload['current_fill']),
+            predicted_fill_6h=float(payload['predicted_fill_6h']),
+            last_collection_hours=float(payload['last_collection_hours']),
+            priority_score=float(payload['priority_score']),
+            alerts_json=json.dumps(payload.get('alerts', [])),
+        )
+        rows.append(row)
+
+    session.add_all(rows)
+    await session.flush()
+    return run, rows
+
+
 async def latest_run(session: AsyncSession) -> DecisionRun | None:
     res = await session.execute(select(DecisionRun).order_by(desc(DecisionRun.ts)).limit(1))
     return res.scalar_one_or_none()
+
 
 async def list_items_for_run(session: AsyncSession, run_id: int) -> list[DecisionItem]:
     res = await session.execute(select(DecisionItem).where(DecisionItem.run_id == run_id).order_by(desc(DecisionItem.priority_score)))

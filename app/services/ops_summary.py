@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bin, Alert, DecisionRun, DecisionItem, RoutePlan, Telemetry
@@ -9,7 +9,9 @@ from app.db.models import Bin, Alert, DecisionRun, DecisionItem, RoutePlan, Tele
 
 async def get_ops_summary(session: AsyncSession) -> dict:
     total_bins = await session.scalar(select(func.count()).select_from(Bin)) or 0
-    active_bins = await session.scalar(select(func.count()).select_from(Bin).where(Bin.active.is_(True))) or 0
+    active_bins = await session.scalar(
+        select(func.count()).select_from(Bin).where(Bin.active.is_(True))
+    ) or 0
     inactive_bins = total_bins - active_bins
 
     latest_run_id = await session.scalar(select(func.max(DecisionRun.id)))
@@ -24,9 +26,18 @@ async def get_ops_summary(session: AsyncSession) -> dict:
         result = await session.execute(
             select(
                 func.avg(DecisionItem.predicted_fill_6h),
-                func.sum(func.case((DecisionItem.predicted_fill_6h >= 90, 1), else_=0)),
-                func.sum(func.case(((DecisionItem.predicted_fill_6h >= 70) & (DecisionItem.predicted_fill_6h < 90), 1), else_=0)),
-                func.sum(func.case((DecisionItem.predicted_fill_6h < 70, 1), else_=0)),
+                func.sum(case((DecisionItem.predicted_fill_6h >= 90, 1), else_=0)),
+                func.sum(
+                    case(
+                        (
+                            (DecisionItem.predicted_fill_6h >= 70)
+                            & (DecisionItem.predicted_fill_6h < 90),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                func.sum(case((DecisionItem.predicted_fill_6h < 70, 1), else_=0)),
             ).where(DecisionItem.run_id == latest_run_id)
         )
         row = result.one()
@@ -40,7 +51,10 @@ async def get_ops_summary(session: AsyncSession) -> dict:
     ) or 0
 
     critical_alerts = await session.scalar(
-        select(func.count()).select_from(Alert).where(Alert.status == "open", Alert.severity == "critical")
+        select(func.count()).select_from(Alert).where(
+            Alert.status == "open",
+            Alert.severity == "critical",
+        )
     ) or 0
 
     latest_ts_subq = (
@@ -53,7 +67,8 @@ async def get_ops_summary(session: AsyncSession) -> dict:
         select(func.avg(Telemetry.fill_level))
         .join(
             latest_ts_subq,
-            (Telemetry.bin_id == latest_ts_subq.c.bin_id) & (Telemetry.ts == latest_ts_subq.c.max_ts),
+            (Telemetry.bin_id == latest_ts_subq.c.bin_id)
+            & (Telemetry.ts == latest_ts_subq.c.max_ts),
         )
     )
     avg_fill_level = float((await session.scalar(latest_telemetry_q)) or 0.0)
@@ -64,7 +79,8 @@ async def get_ops_summary(session: AsyncSession) -> dict:
         .select_from(Telemetry)
         .join(
             latest_ts_subq,
-            (Telemetry.bin_id == latest_ts_subq.c.bin_id) & (Telemetry.ts == latest_ts_subq.c.max_ts),
+            (Telemetry.bin_id == latest_ts_subq.c.bin_id)
+            & (Telemetry.ts == latest_ts_subq.c.max_ts),
         )
         .where(Telemetry.ts < stale_cutoff)
     )

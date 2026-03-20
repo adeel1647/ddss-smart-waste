@@ -2,40 +2,67 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.core.config import settings
+
 
 @dataclass
 class PriorityInputs:
     predicted_fill_6h: float
     last_collection_hours: float
     confidence: float
+    collection_interval_days: int = 7
+
+
+@dataclass
+class ServiceWindowStatus:
+    status: str
+    due_ratio: float
+    scheduled_hours: float
+    remaining_hours: float
+
+
+def evaluate_service_window(last_collection_hours: float, collection_interval_days: int) -> ServiceWindowStatus:
+    scheduled_hours = max(24.0, float(collection_interval_days) * 24.0)
+    due_ratio = last_collection_hours / scheduled_hours if scheduled_hours > 0 else 0.0
+    remaining_hours = scheduled_hours - last_collection_hours
+
+    if due_ratio >= settings.collection_critical_ratio:
+        status = 'critical_overdue'
+    elif due_ratio >= settings.collection_overdue_ratio:
+        status = 'overdue'
+    elif due_ratio >= settings.collection_due_soon_ratio:
+        status = 'due_soon'
+    else:
+        status = 'on_track'
+
+    return ServiceWindowStatus(
+        status=status,
+        due_ratio=round(due_ratio, 4),
+        scheduled_hours=scheduled_hours,
+        remaining_hours=round(remaining_hours, 2),
+    )
 
 
 def compute_priority_score(inputs: PriorityInputs) -> float:
     """
-    Returns a NORMALIZED priority score in the range 0-100.
+    Returns a normalized priority score in the range 0-100.
 
-    Interpretation:
-    - 0-39   = low priority
-    - 40-59  = moderate
-    - 60-79  = high
-    - 80-100 = urgent
+    The collection component is now based on the configured service interval
+    for the bin, not a fixed 48-hour assumption.
     """
 
-    # 1) Fill risk: 0-1
     fill_score = max(0.0, min(1.0, inputs.predicted_fill_6h / 100.0))
 
-    # 2) Overdue score: normalize against 48h
-    overdue_score = max(0.0, min(1.0, inputs.last_collection_hours / 48.0))
-
-    # 3) Uncertainty score: lower confidence => higher uncertainty
+    service = evaluate_service_window(
+        last_collection_hours=inputs.last_collection_hours,
+        collection_interval_days=inputs.collection_interval_days,
+    )
+    overdue_score = max(0.0, min(1.0, service.due_ratio))
     uncertainty_score = max(0.0, min(1.0, 1.0 - inputs.confidence))
 
-    # Weighted sum
     score_0_1 = (
         0.55 * fill_score
         + 0.30 * overdue_score
         + 0.15 * uncertainty_score
     )
-
-    # Convert to 0-100
     return round(score_0_1 * 100.0, 2)

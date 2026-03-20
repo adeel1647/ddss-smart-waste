@@ -1,10 +1,24 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from __future__ import annotations
+
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator
+
 
 class DDSSRunRequest(BaseModel):
-    postcode: Optional[str] = None
+    postcode: str | None = None
+    sector: str | None = None
     limit: int = Field(default=200, ge=1, le=5000)
+
+    @field_validator('postcode', 'sector')
+    @classmethod
+    def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
 
 class DDSSBinDecision(BaseModel):
     bin_id: str
@@ -15,11 +29,12 @@ class DDSSBinDecision(BaseModel):
     predicted_fill_6h: float = Field(ge=0.0, le=100.0)
     last_collection_hours: float = Field(ge=0.0)
     priority_score: float
-    alerts: List[str] = Field(default_factory=list)
-    meta: Dict[str, Any] = Field(default_factory=dict)
+    alerts: list[str] = Field(default_factory=list)
+    meta: dict[str, Any] = Field(default_factory=dict)
+
 
 class DDSSRunResponse(BaseModel):
     run_id: int
     ts: datetime
-    postcode_filter: Optional[str] = None
-    ranked_bins: List[DDSSBinDecision]
+    postcode_filter: str | None = None
+    ranked_bins: list[DDSSBinDecision]

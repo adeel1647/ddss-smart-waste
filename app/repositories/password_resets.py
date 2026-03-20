@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, update, desc
+
+from sqlalchemy import desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PasswordResetCode
@@ -25,16 +28,21 @@ async def create_password_reset_code(
     return record
 
 
-async def get_latest_active_reset_code(db: AsyncSession, user_id: int):
+async def get_latest_active_reset_code(db: AsyncSession, user_id: int) -> PasswordResetCode | None:
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(PasswordResetCode)
-        .where(PasswordResetCode.user_id == user_id)
+        .where(
+            PasswordResetCode.user_id == user_id,
+            PasswordResetCode.used.is_(False),
+            PasswordResetCode.expires_at > now,
+        )
         .order_by(desc(PasswordResetCode.created_at))
     )
     return result.scalars().first()
 
 
-async def increment_reset_attempts(db: AsyncSession, record_id: int):
+async def increment_reset_attempts(db: AsyncSession, record_id: int) -> None:
     await db.execute(
         update(PasswordResetCode)
         .where(PasswordResetCode.id == record_id)
@@ -43,7 +51,7 @@ async def increment_reset_attempts(db: AsyncSession, record_id: int):
     await db.commit()
 
 
-async def mark_reset_code_used(db: AsyncSession, record_id: int):
+async def mark_reset_code_used(db: AsyncSession, record_id: int) -> None:
     await db.execute(
         update(PasswordResetCode)
         .where(PasswordResetCode.id == record_id)
