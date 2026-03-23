@@ -9,6 +9,10 @@ from app.services.idgen import next_bin_id
 
 async def create_bin(
     session: AsyncSession,
+    organisation_id: int,
+    site_id: int,
+    zone_id: int | None,
+    name: str | None,
     postcode: str | None,
     sector: str | None,
     lat: float,
@@ -20,6 +24,10 @@ async def create_bin(
     bin_id = await next_bin_id(session)
     record = Bin(
         bin_id=bin_id,
+        organisation_id=organisation_id,
+        site_id=site_id,
+        zone_id=zone_id,
+        name=name,
         postcode=postcode,
         sector=sector,
         lat=lat,
@@ -49,12 +57,21 @@ async def get_bins_by_ids(session: AsyncSession, bin_ids: list[str]) -> dict[str
 
 async def list_bins(
     session: AsyncSession,
+    organisation_id: int | None = None,
+    site_id: int | None = None,
+    zone_id: int | None = None,
     postcode: str | None = None,
     sector: str | None = None,
     active: bool | None = True,
     limit: int = 200,
 ) -> list[Bin]:
     query = select(Bin)
+    if organisation_id is not None:
+        query = query.where(Bin.organisation_id == organisation_id)
+    if site_id is not None:
+        query = query.where(Bin.site_id == site_id)
+    if zone_id is not None:
+        query = query.where(Bin.zone_id == zone_id)
     if postcode is not None:
         query = query.where(Bin.postcode == postcode)
     if sector is not None:
@@ -64,3 +81,29 @@ async def list_bins(
     query = query.order_by(Bin.created_at.desc()).limit(limit)
     result = await session.execute(query)
     return list(result.scalars().all())
+
+
+
+async def update_bin(
+    session: AsyncSession,
+    bin_id: str,
+    **values,
+) -> Bin | None:
+    record = await get_bin(session, bin_id)
+    if record is None:
+        return None
+    for k, v in values.items():
+        if hasattr(record, k):
+            setattr(record, k, v)
+    await session.commit()
+    await session.refresh(record)
+    return record
+
+
+async def delete_bin(session: AsyncSession, bin_id: str) -> bool:
+    record = await get_bin(session, bin_id)
+    if record is None:
+        return False
+    await session.delete(record)
+    await session.commit()
+    return True

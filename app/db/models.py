@@ -87,6 +87,7 @@ class Bin(Base):
 
     bin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     organisation_id: Mapped[int | None] = mapped_column(ForeignKey('organisations.id', ondelete='SET NULL'), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     site_id: Mapped[int | None] = mapped_column(ForeignKey('sites.id', ondelete='SET NULL'), nullable=True, index=True)
     zone_id: Mapped[int | None] = mapped_column(ForeignKey('zones.id', ondelete='SET NULL'), nullable=True, index=True)
     postcode: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
@@ -191,19 +192,33 @@ class RouteTrip(Base):
 class User(Base):
     __tablename__ = 'users'
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    platform_role: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    memberships: Mapped[List['OrganisationMembership']] = relationship(back_populates='user', cascade='all, delete-orphan')
-    site_assignments: Mapped[List['UserSiteAssignment']] = relationship(back_populates='user', cascade='all, delete-orphan')
-    bin_assignments: Mapped[List['UserBinAssignment']] = relationship(back_populates='user', cascade='all, delete-orphan')
+    memberships: Mapped[list["OrganisationMembership"]] = relationship(
+        "OrganisationMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
+    site_assignments: Mapped[list["UserSiteAssignment"]] = relationship(
+        "UserSiteAssignment",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    bin_assignments: Mapped[list["UserBinAssignment"]] = relationship(
+        "UserBinAssignment",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 class OrganisationMembership(Base):
     __tablename__ = 'organisation_memberships'
@@ -406,6 +421,7 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     organisation_id: Mapped[int | None] = mapped_column(ForeignKey('organisations.id', ondelete='SET NULL'), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     entity_type: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
@@ -422,6 +438,7 @@ class ContaminationCase(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     organisation_id: Mapped[int | None] = mapped_column(ForeignKey('organisations.id', ondelete='SET NULL'), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     site_id: Mapped[int | None] = mapped_column(ForeignKey('sites.id', ondelete='SET NULL'), nullable=True, index=True)
     zone_id: Mapped[int | None] = mapped_column(ForeignKey('zones.id', ondelete='SET NULL'), nullable=True, index=True)
     bin_id: Mapped[str] = mapped_column(ForeignKey('bins.bin_id', ondelete='CASCADE'), nullable=False, index=True)

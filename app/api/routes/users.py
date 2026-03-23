@@ -36,14 +36,14 @@ ALLOWED_ROLES = {'viewer', 'operator', 'manager', 'admin', 'owner'}
 
 
 def _can_manage_users(current_user: User, active_role: str | None) -> bool:
-    return current_user.is_admin or active_role in {'admin', 'owner'}
+    return current_user.is_admin or active_role in {'manager', 'admin', 'owner'}
 
 
 async def _build_user_payload(db: AsyncSession, user: User) -> UserListItemOut:
     memberships = await get_user_memberships(db, user.id)
     default_membership = await get_default_membership(db, user.id)
-    active_role = 'owner' if user.is_admin else (default_membership.role if default_membership else 'viewer')
-    active_org_id = None if user.is_admin else (default_membership.organisation_id if default_membership else None)
+    active_role = user.platform_role or (default_membership.role if default_membership else 'viewer')
+    active_org_id = None if user.platform_role in {'owner', 'admin'} else (default_membership.organisation_id if default_membership else None)
     site_ids = await get_user_site_ids(db, user.id)
     bin_ids = await get_user_bin_ids(db, user.id)
     return UserListItemOut(
@@ -52,6 +52,7 @@ async def _build_user_payload(db: AsyncSession, user: User) -> UserListItemOut:
         display_name=user.display_name,
         is_active=user.is_active,
         is_admin=user.is_admin,
+        platform_role=user.platform_role,
         active_organisation_id=active_org_id,
         active_role=active_role,
         memberships=[
@@ -113,22 +114,59 @@ async def create_user_with_access(
 ):
     me = await _build_user_payload(db, current_user)
     if not _can_manage_users(current_user, me.active_role):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only admin/owner can create users')
-    if payload.role not in ALLOWED_ROLES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid role')
-    if payload.role == 'owner' and not (current_user.is_admin or me.active_role == 'owner'):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only owner/platform admin can assign owner role')
+        raise HTTPException(status_code=403, detail='Only manager/admin/owner can create users')
+
+    requested_role = (payload.platform_role or payload.role or 'viewer').strip().lower()
+    if requested_role not in ALLOWED_ROLES:
+        raise HTTPException(status_code=400, detail='Invalid role')
+
+    # manager cannot create global roles
+    if me.active_role == 'manager' and requested_role in {'owner', 'admin'}:
+        raise HTTPException(status_code=403, detail='Manager cannot create owner/admin users')
+
+    # admin cannot create owner
+    if requested_role == 'owner' and (current_user.platform_role != 'owner'):
+        raise HTTPException(status_code=403, detail='Only owner can create another owner')
+
     existing = await get_user_by_email(db, payload.email.lower().strip())
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Email already registered')
+        raise HTTPException(status_code=409, detail='Email already registered')
+
     password_hash = hash_password(payload.password)
-    user = await create_user(db, email=payload.email, password_hash=password_hash, display_name=payload.display_name, is_admin=payload.is_admin, is_active=payload.is_active)
-    if payload.organisation_id is not None:
-        await create_membership(db, user_id=user.id, organisation_id=payload.organisation_id, role=payload.role, is_default=payload.is_default_membership)
-    if payload.site_ids:
+    platform_role = requested_role if requested_role in {'owner', 'admin'} else None
+
+    # manager can only create scoped users in their own organisation
+    if me.active_role == 'manager':
+        if payload.organisation_id is None:
+            raise HTTPException(status_code=400, detail='organisation_id is required')
+        if payload.organisation_id != me.active_organisation_id:
+            raise HTTPException(status_code=403, detail='Manager can only create users in their own organisation')
+
+    user = await create_user(
+        db,
+        email=payload.email.lower().strip(),
+        password_hash=password_hash,
+        display_name=payload.display_name,
+        is_admin=platform_role in {'owner', 'admin'},
+        platform_role=platform_role,
+        is_active=payload.is_active,
+    )
+
+    if requested_role in {'manager', 'operator', 'viewer'}:
+        if payload.organisation_id is None:
+            raise HTTPException(status_code=400, detail='organisation_id is required for manager/operator/viewer')
+        await create_membership(
+            db,
+            user_id=user.id,
+            organisation_id=payload.organisation_id,
+            role=requested_role,
+            is_default=payload.is_default_membership,
+        )
+
+    # site assignment only for operator/viewer
+    if requested_role in {'operator', 'viewer'} and payload.site_ids:
         await replace_user_site_assignments(db, user.id, payload.site_ids)
-    if payload.bin_ids:
-        await replace_user_bin_assignments(db, user.id, payload.bin_ids)
+
     await db.commit()
     await db.refresh(user)
     return await _build_user_payload(db, user)
@@ -146,7 +184,7 @@ async def add_membership(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only admin/owner can assign memberships')
     if payload.role not in ALLOWED_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid role')
-    if payload.role == 'owner' and not (current_user.is_admin or me.active_role == 'owner'):
+    if payload.role == 'owner' and current_user.platform_role != 'owner' and me.active_role != 'owner':
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only owner/platform admin can assign owner role')
     target = await get_user_by_id(db, user_id)
     if not target:
@@ -165,11 +203,27 @@ async def update_assignments(
 ):
     me = await _build_user_payload(db, current_user)
     if not _can_manage_users(current_user, me.active_role):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only admin/owner can manage assignments')
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Only manager/admin/owner can manage assignments')
+
     target = await get_user_by_id(db, user_id)
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='User not found')
+
+    target_payload = await _build_user_payload(db, target)
+
+    # only operator/viewer should be assigned sites
+    if target_payload.active_role not in {'operator', 'viewer'}:
+        raise HTTPException(status_code=400, detail='Assignments are only allowed for operator/viewer')
+
+    # manager can only assign users inside own organisation
+    if me.active_role == 'manager':
+        if me.active_organisation_id is None:
+            raise HTTPException(status_code=403, detail='Manager has no active organisation')
+        if not any(m.organisation_id == me.active_organisation_id for m in target_payload.memberships):
+            raise HTTPException(status_code=403, detail='Manager can only manage users in their own organisation')
+
     await replace_user_site_assignments(db, user_id, payload.site_ids)
-    await replace_user_bin_assignments(db, user_id, payload.bin_ids)
+    # direct bin assignment removed
+    await replace_user_bin_assignments(db, user_id, [])
     await db.commit()
     return await _build_user_payload(db, target)

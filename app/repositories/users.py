@@ -40,14 +40,16 @@ async def create_user(
     password_hash: str,
     display_name: str | None = None,
     is_admin: bool = False,
+    platform_role: str | None = None,
     is_active: bool = True,
 ) -> User:
     user = User(
         email=email.lower().strip(),
-        display_name=display_name,
         password_hash=password_hash,
-        is_active=is_active,
+        display_name=display_name,
         is_admin=is_admin,
+        platform_role=platform_role,
+        is_active=is_active,
     )
     db.add(user)
     await db.flush()
@@ -108,15 +110,28 @@ async def get_user_bin_ids(db: AsyncSession, user_id: int) -> list[str]:
 
 
 async def get_accessible_bin_ids(db: AsyncSession, user: User) -> list[str] | None:
-    if user.is_admin:
+    if user.platform_role in {'owner', 'admin'} or user.is_admin:
         return None
+
     memberships = await list_user_memberships(db, user.id)
-    role = memberships[0].role if memberships else 'viewer'
-    if role in {'manager', 'admin', 'owner'}:
-        return None
+    if not memberships:
+        return sorted(set(await get_user_bin_ids(db, user.id)))
+
+    roles = {m.role for m in memberships}
+    org_ids = {m.organisation_id for m in memberships}
+
+    if 'manager' in roles:
+        res = await db.execute(select(Bin.bin_id).where(Bin.organisation_id.in_(org_ids)))
+        return sorted(set(res.scalars().all()))
+
     direct_bin_ids = set(await get_user_bin_ids(db, user.id))
     site_ids = await get_user_site_ids(db, user.id)
     if site_ids:
         res = await db.execute(select(Bin.bin_id).where(Bin.site_id.in_(site_ids)))
         direct_bin_ids.update(res.scalars().all())
+
+    if 'viewer' in roles and not direct_bin_ids:
+        res = await db.execute(select(Bin.bin_id).where(Bin.organisation_id.in_(org_ids)))
+        direct_bin_ids.update(res.scalars().all())
+
     return sorted(direct_bin_ids)

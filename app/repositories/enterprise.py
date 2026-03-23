@@ -203,3 +203,66 @@ async def list_audit_logs(
     stmt = stmt.order_by(AuditLog.created_at.desc()).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def update_organisation(session: AsyncSession, organisation_id: int, **values) -> Organisation | None:
+    row = await session.get(Organisation, organisation_id)
+    if row is None:
+        return None
+    for k, v in values.items():
+        if hasattr(row, k) and v is not None:
+            setattr(row, k, v)
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def delete_organisation(session: AsyncSession, organisation_id: int) -> bool:
+    row = await session.get(Organisation, organisation_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.commit()
+    return True
+
+
+async def update_site(session: AsyncSession, site_id: int, **values) -> Site | None:
+    row = await session.get(Site, site_id)
+    if row is None:
+        return None
+    for k, v in values.items():
+        if hasattr(row, k):
+            setattr(row, k, v)
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def delete_site(session: AsyncSession, site_id: int) -> bool:
+    row = await session.get(Site, site_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.commit()
+    return True
+
+
+async def update_zone(session: AsyncSession, zone_id: int, **values) -> Zone | None:
+    row = await session.get(Zone, zone_id)
+    if row is None:
+        return None
+    for k, v in values.items():
+        if hasattr(row, k):
+            setattr(row, k, v)
+    await session.commit()
+    await session.refresh(row)
+    return row
+
+
+async def delete_zone(session: AsyncSession, zone_id: int) -> bool:
+    row = await session.get(Zone, zone_id)
+    if row is None:
+        return False
+    await session.delete(row)
+    await session.commit()
+    return True

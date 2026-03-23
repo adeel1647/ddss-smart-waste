@@ -62,7 +62,7 @@ async def _make_unique_org_slug(db: AsyncSession, base_name: str) -> str:
 
 async def _is_admin_or_owner(db: AsyncSession, user_id: int) -> bool:
     user = await db.get(User, user_id)
-    if user and user.is_admin:
+    if user and user.platform_role in {'owner', 'admin'}:
         return True
 
     res = await db.execute(
@@ -144,18 +144,16 @@ async def login(payload: LoginIn, response: Response, request: Request, db: Asyn
 
     user = await get_user_by_email(db, normalized_email)
     if not user or not verify_password(payload.password, user.password_hash):
-        log.warning('Failed login', extra={'client_ip': client_ip, 'path': '/auth/login'})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid credentials')
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='User inactive')
 
     token = create_access_token(
-    subject=str(user.id),
-    email=user.email,
-    role='owner' if user.is_admin else 'user',
+        subject=str(user.id),
+        email=user.email,
+        role=user.platform_role or 'user',
     )
     _set_auth_cookie(response, token)
-    log.info('Login success', extra={'client_ip': client_ip, 'user_id': user.id, 'path': '/auth/login'})
     return TokenOut(access_token=token)
 
 
@@ -172,28 +170,27 @@ async def register_user(
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='Email already registered')
 
-    try:
-        password_hash = hash_password(payload.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    password_hash = hash_password(payload.password)
 
     requested_role = (payload.role or 'viewer').strip().lower()
     if requested_role not in {'viewer', 'operator', 'manager', 'admin', 'owner'}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Invalid role')
+
     user_count_res = await db.execute(select(func.count()).select_from(User))
     is_bootstrap = user_count_res.scalar_one() == 0
 
     if is_bootstrap:
         user = await create_user(
-        db,
-        email=normalized_email,
-        password_hash=password_hash,
-        display_name=display_name,
-        is_admin=True,
+            db,
+            email=normalized_email,
+            password_hash=password_hash,
+            display_name=display_name,
+            is_admin=True,
+            platform_role='owner',
         )
-    await db.commit()
-    await db.refresh(user)
-    return user
+        await db.commit()
+        await db.refresh(user)
+        return user
 
     wants_managed_creation = requested_role != 'viewer' or payload.organisation_id is not None
     if wants_managed_creation:
@@ -203,21 +200,26 @@ async def register_user(
                 detail='Only authenticated admins/owners can register users with roles',
             )
 
+    platform_role = requested_role if requested_role in {'owner', 'admin'} else None
     user = await create_user(
-    db,
-    email=normalized_email,
-    password_hash=password_hash,
-    display_name=display_name,
-)
-
-    if payload.organisation_id is not None:
-        await create_membership(
         db,
-        user_id=user.id,
-        organisation_id=payload.organisation_id,
-        role=requested_role,
-        is_default=True,
+        email=normalized_email,
+        password_hash=password_hash,
+        display_name=display_name,
+        is_admin=platform_role in {'owner', 'admin'},
+        platform_role=platform_role,
     )
+
+    if requested_role in {'manager', 'operator', 'viewer'}:
+        if payload.organisation_id is None:
+            raise HTTPException(status_code=400, detail='organisation_id is required for manager/operator/viewer')
+        await create_membership(
+            db,
+            user_id=user.id,
+            organisation_id=payload.organisation_id,
+            role=requested_role,
+            is_default=True,
+        )
 
     await db.commit()
     await db.refresh(user)

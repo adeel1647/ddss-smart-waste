@@ -1069,3 +1069,142 @@ This update adds structured user-management on top of the previous system withou
 
 ### Important note for existing databases
 Because `user_site_assignments` and `user_bin_assignments` tables were added, an existing database must be migrated or recreated before using the new assignment features.
+
+
+## What changed
+
+This update makes the system follow these rules:
+
+### Global roles
+- `owner` → full platform access
+- `admin` → full platform operational access
+
+Global users do **not** need an organisation membership.
+
+### Scoped roles
+- `manager` → organisation-scoped manager
+- `operator` → assigned site/bin operational user
+- `viewer` → read-only user
+
+## New intended workflow
+
+1. First registered user becomes global `owner`.
+2. Owner/Admin can create organisations.
+3. Owner/Admin can create Managers for a specific organisation.
+4. Manager can create Sites and Zones only inside their own organisation.
+5. Manager can create Operators/Viewers only inside their own organisation.
+6. Manager can assign Operators/Viewers to specific sites/bins.
+7. Bins must be linked to:
+   - `organisation_id`
+   - `site_id`
+   - optional `zone_id`
+
+## Role responsibilities
+
+### Owner
+- full platform access
+- create organisations
+- create global admins
+- see all organisations and all data
+
+### Admin
+- full platform operational access
+- create organisations
+- create managers/operators/viewers
+- manage enterprise structure
+
+### Manager
+- scoped to their organisation only
+- create sites
+- create zones
+- create bins only within their organisation/site/zone
+- create operators/viewers in their organisation
+- assign sites/bins to operators/viewers
+- run DDSS/routing within their own organisation scope
+
+### Operator
+- daily operational role
+- see assigned sites/bins
+- see important alerts
+- see routing/DDSS results relevant to their scope
+- update assigned work/tasks
+- mark collection work complete
+
+### Viewer
+- read-only role
+- see scoped dashboards, bins, alerts, analytics
+- cannot create or modify enterprise data
+
+## Backend files updated
+- `app/api/deps.py`
+- `app/api/routes/auth.py`
+- `app/api/routes/bins.py`
+- `app/api/routes/enterprise.py`
+- `app/api/routes/users.py`
+- `app/repositories/bins.py`
+- `app/repositories/users.py`
+- `app/schemas/common.py`
+- `app/schemas/enterprise.py`
+- `app/schemas/users.py`
+- `app/db/models.py`
+
+## Frontend files updated
+- `lib/types.ts`
+- `lib/queries.ts`
+- `lib/rbac-context.tsx`
+- `components/app-sidebar.tsx`
+- `app/dashboard/users/page.tsx`
+- `app/dashboard/bins/page.tsx`
+
+## API behavior summary
+
+### Create organisation
+`POST /api/v1/enterprise/organisations`
+- Owner/Admin allowed
+- creator is attached to org as `owner`/`admin`
+
+### Create site
+`POST /api/v1/enterprise/sites`
+- Owner/Admin/Manager allowed
+- Manager can only create inside own organisation
+
+### Create zone
+`POST /api/v1/enterprise/zones`
+- Owner/Admin/Manager allowed
+- Manager can only create inside own organisation via site ownership
+
+### Create user with access
+`POST /api/v1/users`
+- Owner can create global owner/admin and scoped users
+- Admin can create global admin and scoped users
+- Manager can create only `operator` or `viewer` in own organisation
+
+### Create bin
+`POST /api/v1/bins`
+- Owner/Admin/Manager allowed
+- requires `organisation_id`, `site_id`, optional `zone_id`
+- validates site belongs to organisation
+- validates zone belongs to site
+
+## Recommended test flow
+
+1. Register first owner
+2. Create Hull / Leeds / Bradford organisations
+3. Create Hull manager attached to Hull organisation
+4. Login as Hull manager
+5. Create Hull sites
+6. Create Hull zones
+7. Create Hull operators/viewers
+8. Assign Hull operators to Hull sites/bins
+9. Create Hull bins linked to Hull org/site/zone
+10. Verify Hull manager does not manage Leeds/Bradford bins
+
+
+## 2026-03-20 RBAC and UI update
+- Owner: global strategic role; organisation create/delete/edit allowed.
+- Admin: global operational role; organisation edit allowed, organisation delete not allowed.
+- Manager: organisation-scoped role; can create sites, zones, users (manager/operator/viewer) inside own organisation and manage bins in own organisation.
+- Operator/Viewer: site-scoped assignments; direct bin assignment removed from UI flow. Bins are inherited from assigned sites.
+- Bin registry now stores optional `name` and supports edit/delete.
+- Enterprise tables now support edit/delete actions for organisations, sites and zones subject to role permissions.
+- Audit logs can be inspected in a details modal on the frontend.

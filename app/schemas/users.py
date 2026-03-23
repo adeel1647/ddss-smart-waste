@@ -13,6 +13,7 @@ class UserOut(BaseModel):
     display_name: str | None = None
     is_active: bool
     is_admin: bool
+    platform_role: str | None = None
 
     class Config:
         from_attributes = True
@@ -36,6 +37,7 @@ class UserMeOut(BaseModel):
     display_name: str | None = None
     is_active: bool
     is_admin: bool
+    platform_role: str | None = None
     active_organisation_id: int | None = None
     active_role: str
     memberships: list[UserMembershipOut]
@@ -48,6 +50,7 @@ class UserListItemOut(BaseModel):
     display_name: str | None = None
     is_active: bool
     is_admin: bool
+    platform_role: str | None = None
     active_role: str
     active_organisation_id: int | None = None
     memberships: list[UserMembershipOut]
@@ -59,12 +62,11 @@ class UserCreateWithAccessIn(BaseModel):
     password: str
     display_name: str | None = None
     is_active: bool = True
-    is_admin: bool = False
+    platform_role: str | None = None
     organisation_id: int | None = None
     role: str = 'viewer'
     is_default_membership: bool = True
     site_ids: list[int] = []
-    bin_ids: list[str] = []
 
 
 class UserMembershipCreateIn(BaseModel):
@@ -75,5 +77,4 @@ class UserMembershipCreateIn(BaseModel):
 
 class UserAssignmentsUpdateIn(BaseModel):
     site_ids: list[int] = []
-    bin_ids: list[str] = []
     replace_existing: bool = True

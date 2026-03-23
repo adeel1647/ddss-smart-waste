@@ -15,9 +15,15 @@ from app.repositories.enterprise import (
     create_notification_channel,
     create_notification_event,
     create_organisation,
+    update_organisation,
+    delete_organisation,
     create_scheduled_report,
     create_site,
+    update_site,
+    delete_site,
     create_zone,
+    update_zone,
+    delete_zone,
     get_device,
     list_audit_logs,
     list_devices,
@@ -44,12 +50,15 @@ from app.schemas.enterprise import (
     NotificationEventCreate,
     NotificationEventOut,
     OrganisationCreate,
+    OrganisationUpdate,
     OrganisationOut,
     ScheduledReportCreate,
     ScheduledReportOut,
     SiteCreate,
+    SiteUpdate,
     SiteOut,
     ZoneCreate,
+    ZoneUpdate,
     ZoneOut,
 )
 from app.services.audit import log_audit
@@ -65,7 +74,7 @@ async def get_organisations(
     memberships = await list_memberships(session, user_id=user.id)
     roles = {m.role for m in memberships}
 
-    if user.is_admin or 'owner' in roles:
+    if user.platform_role in {'owner', 'admin'} or 'owner' in roles or 'admin' in roles:
         return await list_organisations(session)
 
     allowed = {m.organisation_id for m in memberships}
@@ -77,7 +86,7 @@ async def get_organisations(
 async def post_organisation(
     payload: OrganisationCreate,
     session: AsyncSession = Depends(get_session),
-    user: User = Depends(require_roles("owner", "admin")),
+    user: User = Depends(require_roles('owner', 'admin')),
 ):
     row = await create_organisation(
         session,
@@ -86,13 +95,22 @@ async def post_organisation(
         description=payload.description,
     )
 
-    await create_membership(
-        session,
-        user_id=user.id,
-        organisation_id=row.id,
-        role="owner",
-        is_default=False,
-    )
+    if user.platform_role == 'owner':
+        await create_membership(
+            session,
+            user_id=user.id,
+            organisation_id=row.id,
+            role='owner',
+            is_default=False,
+        )
+    elif user.platform_role == 'admin':
+        await create_membership(
+            session,
+            user_id=user.id,
+            organisation_id=row.id,
+            role='admin',
+            is_default=False,
+        )
 
     await log_audit(
         session,
@@ -118,7 +136,7 @@ async def get_sites(
     if ctx.organisation_id is not None:
         await require_org_permission(session, user, ctx.organisation_id, 'site:read')
     rows = await list_sites(session, organisation_id=ctx.organisation_id)
-    if user.is_admin or ctx.organisation_id is not None:
+    if user.platform_role in {'owner', 'admin'} or ctx.organisation_id is not None:
         return rows
     memberships = await list_memberships(session, user_id=user.id)
     allowed = {m.organisation_id for m in memberships}
@@ -157,9 +175,8 @@ async def get_zones(
     if ctx.organisation_id is not None:
         await require_org_permission(session, user, ctx.organisation_id, 'zone:read')
     rows = await list_zones(session, site_id=None)
-    if user.is_admin or ctx.organisation_id is None:
-        if user.is_admin:
-            return rows
+    if user.platform_role in {'owner', 'admin'} and ctx.organisation_id is None:
+        return rows
     site_rows = await list_sites(session, organisation_id=ctx.organisation_id if ctx.organisation_id is not None else None)
     allowed_site_ids = {row.id for row in site_rows}
     return [row for row in rows if row.site_id in allowed_site_ids]
@@ -182,6 +199,84 @@ async def post_zone(
     return row
 
 
+@router.patch('/organisations/{organisation_id}', response_model=OrganisationOut)
+async def patch_organisation(
+    organisation_id: int,
+    payload: OrganisationUpdate,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    if user.platform_role not in {'owner', 'admin'}:
+        raise HTTPException(status_code=403, detail='Only owner/admin can edit organisations')
+    row = await update_organisation(session, organisation_id, **payload.model_dump(exclude_unset=True))
+    if row is None:
+        raise HTTPException(status_code=404, detail='Organisation not found')
+    await log_audit(session, organisation_id=row.id, actor_user_id=user.id, action='organisation.update', entity_type='organisation', entity_id=str(row.id), details=payload.model_dump(exclude_unset=True))
+    return row
+
+
+@router.delete('/organisations/{organisation_id}')
+async def remove_organisation(
+    organisation_id: int,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    if user.platform_role != 'owner':
+        raise HTTPException(status_code=403, detail='Only owner can delete organisations')
+    ok = await delete_organisation(session, organisation_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail='Organisation not found')
+    return {'ok': True}
+
+
+@router.patch('/sites/{site_id}', response_model=SiteOut)
+async def patch_site(site_id: int, payload: SiteUpdate, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+    row = await session.get(Site, site_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Site not found')
+    await require_org_permission(session, user, row.organisation_id, 'site:write')
+    updated = await update_site(session, site_id, **payload.model_dump(exclude_unset=True))
+    await log_audit(session, organisation_id=row.organisation_id, actor_user_id=user.id, action='site.update', entity_type='site', entity_id=str(site_id), details=payload.model_dump(exclude_unset=True))
+    return updated
+
+
+@router.delete('/sites/{site_id}')
+async def remove_site(site_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+    row = await session.get(Site, site_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Site not found')
+    await require_org_permission(session, user, row.organisation_id, 'site:write')
+    ok = await delete_site(session, site_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail='Site not found')
+    return {'ok': True}
+
+
+@router.patch('/zones/{zone_id}', response_model=ZoneOut)
+async def patch_zone(zone_id: int, payload: ZoneUpdate, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+    row = await session.get(Zone, zone_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Zone not found')
+    site = await session.get(Site, row.site_id)
+    await require_org_permission(session, user, site.organisation_id, 'zone:write')
+    updated = await update_zone(session, zone_id, **payload.model_dump(exclude_unset=True))
+    await log_audit(session, organisation_id=site.organisation_id, actor_user_id=user.id, action='zone.update', entity_type='zone', entity_id=str(zone_id), details=payload.model_dump(exclude_unset=True))
+    return updated
+
+
+@router.delete('/zones/{zone_id}')
+async def remove_zone(zone_id: int, session: AsyncSession = Depends(get_session), user: User = Depends(get_current_user)):
+    row = await session.get(Zone, zone_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='Zone not found')
+    site = await session.get(Site, row.site_id)
+    await require_org_permission(session, user, site.organisation_id, 'zone:write')
+    ok = await delete_zone(session, zone_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail='Zone not found')
+    return {'ok': True}
+
+
 @router.get('/memberships', response_model=list[MembershipOut])
 async def get_memberships(
     organisation_id: int | None = Query(default=None),
@@ -191,7 +286,7 @@ async def get_memberships(
     if organisation_id is not None:
         await require_org_permission(session, user, organisation_id, 'membership:read')
         return await list_memberships(session, organisation_id=organisation_id)
-    if user.is_admin:
+    if user.platform_role in {'owner', 'admin'}:
         return await list_memberships(session)
     return await list_memberships(session, user_id=user.id)
 
@@ -204,12 +299,14 @@ async def post_membership(
 ):
     ctx = await get_active_org_context(session, user, payload.organisation_id)
     await require_org_permission(session, user, payload.organisation_id, 'membership:write')
-    if payload.role == 'owner' and ctx.role != 'owner' and not user.is_admin:
+    if payload.role == 'owner' and ctx.role != 'owner' and user.platform_role != 'owner':
         raise HTTPException(status_code=403, detail='Only an owner can assign the owner role')
-    if payload.role == 'admin' and ctx.role not in {'owner', 'admin', 'platform_admin'}:
+    if payload.role == 'admin' and ctx.role not in {'owner', 'admin'}:
         raise HTTPException(status_code=403, detail='Only owner or admin can assign admin role')
     if ctx.role == 'admin' and payload.role == 'owner':
         raise HTTPException(status_code=403, detail='Admins cannot promote a member to owner')
+    if ctx.role == 'manager' and payload.role not in {'operator', 'viewer'}:
+        raise HTTPException(status_code=403, detail='Managers can only assign operator/viewer roles')
 
     if payload.is_default:
         await session.execute(
@@ -439,6 +536,7 @@ def _map_audit(row) -> AuditLogOut:
         id=row.id,
         organisation_id=row.organisation_id,
         actor_user_id=row.actor_user_id,
+        actor_email=(getattr(row, 'actor', None).email if getattr(row, 'actor', None) else None),
         action=row.action,
         entity_type=row.entity_type,
         entity_id=row.entity_id,

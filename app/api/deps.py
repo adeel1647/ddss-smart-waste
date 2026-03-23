@@ -21,29 +21,42 @@ ROLE_RANK = {role: idx for idx, role in enumerate(ROLE_ORDER, start=1)}
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     'viewer': {
-        'dashboard:read', 'bin:read', 'alert:read', 'report:read',
+        'dashboard:read', 'bin:read', 'alert:read', 'report:read', 'org:read', 'site:read', 'zone:read',
+        'analytics:read', 'intelligence:read', 'routing:read', 'ddss:read', 'telemetry:read',
     },
     'operator': {
-        'dashboard:read', 'bin:read', 'alert:read', 'report:read', 'org:read', 'site:read', 'zone:read', 'device:read',
-        'device:heartbeat', 'work_order:read', 'work_order:update_assigned',
-    },
-    'manager': {
-        'dashboard:read', 'bin:read', 'alert:read', 'report:read', 'report:write', 'org:read', 'site:read', 'zone:read',
-        'device:read', 'audit:read', 'work_order:read', 'work_order:write', 'intelligence:read', 'analytics:read',
+        'dashboard:read', 'bin:read', 'alert:read', 'report:read', 'org:read', 'site:read', 'zone:read',
+        'analytics:read', 'intelligence:read', 'routing:read', 'ddss:read', 'telemetry:read',
+        'device:read', 'device:heartbeat', 'work_order:read', 'work_order:update_assigned',
         'contamination:read', 'contamination:write',
     },
+    'manager': {
+        'dashboard:read', 'bin:read', 'bin:write', 'alert:read', 'alert:write', 'report:read', 'report:write',
+        'org:read', 'site:read', 'site:write', 'zone:read', 'zone:write',
+        'device:read', 'device:write', 'audit:read', 'work_order:read', 'work_order:write',
+        'intelligence:read', 'analytics:read', 'contamination:read', 'contamination:write',
+        'membership:read', 'membership:write_limited',
+        'routing:read', 'routing:write', 'ddss:read', 'ddss:write', 'telemetry:read', 'telemetry:write',
+        'classify:read', 'classify:write',
+    },
     'admin': {
-        'dashboard:read', 'bin:read', 'alert:read', 'alert:write', 'report:read', 'report:write', 'org:read', 'site:read',
-        'site:write', 'zone:read', 'zone:write', 'device:read', 'device:write', 'device:heartbeat', 'notification:read',
-        'notification:write', 'audit:read', 'work_order:read', 'work_order:write', 'intelligence:read', 'analytics:read',
-        'membership:read', 'membership:write', 'contamination:read', 'contamination:write', 'model_monitoring:read',
+        'dashboard:read', 'bin:read', 'bin:write', 'alert:read', 'alert:write', 'report:read', 'report:write',
+        'org:read', 'org:write', 'site:read', 'site:write', 'zone:read', 'zone:write',
+        'device:read', 'device:write', 'device:heartbeat', 'notification:read', 'notification:write',
+        'audit:read', 'work_order:read', 'work_order:write', 'intelligence:read', 'analytics:read',
+        'membership:read', 'membership:write', 'contamination:read', 'contamination:write',
+        'model_monitoring:read', 'routing:read', 'routing:write', 'ddss:read', 'ddss:write',
+        'telemetry:read', 'telemetry:write', 'classify:read', 'classify:write',
     },
     'owner': {
-        'dashboard:read', 'bin:read', 'alert:read', 'alert:write', 'report:read', 'report:write', 'org:read', 'org:write',
-        'org:delete', 'site:read', 'site:write', 'zone:read', 'zone:write', 'device:read', 'device:write',
-        'device:heartbeat', 'notification:read', 'notification:write', 'audit:read', 'work_order:read', 'work_order:write',
-        'intelligence:read', 'analytics:read', 'membership:read', 'membership:write', 'membership:assign_owner',
+        'dashboard:read', 'bin:read', 'bin:write', 'alert:read', 'alert:write', 'report:read', 'report:write',
+        'org:read', 'org:write', 'org:delete', 'site:read', 'site:write', 'zone:read', 'zone:write',
+        'device:read', 'device:write', 'device:heartbeat', 'notification:read', 'notification:write',
+        'audit:read', 'work_order:read', 'work_order:write', 'intelligence:read', 'analytics:read',
+        'membership:read', 'membership:write', 'membership:assign_owner',
         'contamination:read', 'contamination:write', 'model_monitoring:read', 'model_monitoring:write',
+        'routing:read', 'routing:write', 'ddss:read', 'ddss:write', 'telemetry:read', 'telemetry:write',
+        'classify:read', 'classify:write',
     },
 }
 
@@ -183,29 +196,23 @@ async def get_active_org_context(
     user: User,
     organisation_id: int | None = None,
 ):
-    if user.is_admin:
+    if user.platform_role in {'owner', 'admin'}:
         return RequestOrgContext(
             organisation_id=organisation_id,
-            role='owner',
+            role=user.platform_role,
             membership=None,
         )
 
-    query = select(OrganisationMembership).where(
-        OrganisationMembership.user_id == user.id
-    )
-
+    query = select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
     if organisation_id is not None:
-        query = query.where(
-            OrganisationMembership.organisation_id == organisation_id
-        )
+        query = query.where(OrganisationMembership.organisation_id == organisation_id)
     else:
         query = query.where(OrganisationMembership.is_default == True)
 
     result = await db.execute(query)
     membership = result.scalars().first()
-
     if not membership:
-        raise HTTPException(status_code=403, detail="No organisation access")
+        raise HTTPException(status_code=403, detail='No organisation access')
 
     return RequestOrgContext(
         organisation_id=membership.organisation_id,
@@ -224,13 +231,13 @@ async def get_active_role(
 
 
 def role_has_permission(role: str, permission: str) -> bool:
-    if role == 'owner':
+    if role in {'owner', 'admin'}:
         return True
     return permission in ROLE_PERMISSIONS.get(role, set())
 
 
 def role_in(role: str, allowed_roles: Iterable[str]) -> bool:
-    if role == 'owner':
+    if role in {'owner', 'admin'}:
         return True
     return role in set(allowed_roles)
 
@@ -254,7 +261,7 @@ async def require_org_role(
     minimum_role: str,
 ) -> OrganisationMembership | None:
     ctx = await get_active_org_context(session, user, organisation_id)
-    if user.is_admin:
+    if user.platform_role in {'owner', 'admin'}:
         return None
     if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK.get(minimum_role, 0):
         raise _forbidden(f'Requires role {minimum_role} or higher')
@@ -280,7 +287,7 @@ async def assert_any_org_permission(
     permission: str,
 ) -> int | None:
     ids = [int(org_id) for org_id in organisation_ids]
-    if user.is_admin:
+    if user.platform_role in {'owner', 'admin'}:
         return ids[0] if ids else None
     memberships = await get_user_memberships(session, user.id)
     for membership in memberships:
@@ -302,17 +309,14 @@ def require_roles(*roles: str):
         db: AsyncSession = Depends(get_session),
         user: User = Depends(get_current_user),
     ):
-        if user.is_admin:
-            return user
-
+        if user.platform_role in {'owner', 'admin'}:
+            if user.platform_role in roles or 'owner' in roles or 'admin' in roles:
+                return user
         ctx = await get_active_org_context(db, user)
-
         if ctx.role not in roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Requires role {roles}",
+                detail=f'Requires role {roles}',
             )
-
         return user
-
     return checker

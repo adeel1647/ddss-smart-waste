@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class BinCreate(BaseModel):
+    organisation_id: int
+    site_id: int
+    zone_id: int | None = None
+    name: str | None = Field(default=None, max_length=120)
     postcode: str | None = Field(default=None, max_length=16)
     sector: str | None = Field(default=None, max_length=64)
     lat: float = Field(ge=-90.0, le=90.0)
@@ -25,6 +29,10 @@ class BinCreate(BaseModel):
 
 class BinOut(BaseModel):
     bin_id: str
+    name: str | None = None
+    organisation_id: int | None = None
+    site_id: int | None = None
+    zone_id: int | None = None
     postcode: str | None = None
     sector: str | None = None
     lat: float

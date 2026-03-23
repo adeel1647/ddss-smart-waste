@@ -63,6 +63,30 @@ class ZoneOut(BaseModel):
     updated_at: datetime
 
 
+
+
+class OrganisationUpdate(BaseModel):
+    name: str | None = None
+    slug: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class SiteUpdate(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    address: str | None = None
+    lat: float | None = None
+    lon: float | None = None
+    is_active: bool | None = None
+
+
+class ZoneUpdate(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    service_level: str | None = None
+
+
 class MembershipCreate(BaseModel):
     organisation_id: int
     user_id: int
@@ -197,6 +221,7 @@ class AuditLogOut(BaseModel):
     id: int
     organisation_id: int | None = None
     actor_user_id: int | None = None
+    actor_email: str | None = None
     action: str
     entity_type: str
     entity_id: str | None = None
