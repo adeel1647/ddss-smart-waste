@@ -1,0 +1,1257 @@
+{
+  "meta": {
+    "project": "DDSS Smart Waste Management",
+    "version_basis": "Generated from uploaded backend/frontend source on 2026-03-23",
+    "base_url": "/api/v1",
+    "auth": {
+      "methods": [
+        "Bearer token",
+        "HTTP-only cookie"
+      ],
+      "headers": [
+        "Authorization: Bearer <token>",
+        "X-API-Key (optional internal routes)"
+      ],
+      "login_route": "/auth/login"
+    },
+    "notes": [
+      "Some list endpoints accept organisation_id for scoped filtering.",
+      "Global platform roles are owner and admin via users.platform_role.",
+      "Scoped roles are owner/admin/manager/operator/viewer via organisation_memberships.",
+      "Frontend uses React Query wrappers in frontend/lib/queries.ts for most endpoints."
+    ]
+  },
+  "categories": [
+    {
+      "name": "Health & Public",
+      "description": "Unauthenticated health and public capability routes.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/health",
+          "auth": "public",
+          "purpose": "Backend liveness check",
+          "request_example": null,
+          "response_example": {
+            "status": "ok"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/health/models",
+          "auth": "public",
+          "purpose": "Model readiness / availability check",
+          "request_example": null,
+          "response_example": {
+            "classifier_loaded": true,
+            "forecaster_loaded": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/public/stats",
+          "auth": "public",
+          "purpose": "Public platform summary",
+          "request_example": null,
+          "response_example": {
+            "platform": "DDSS Smart Waste",
+            "supported_classes": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "description": "Account registration, login, session, and password reset.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/auth/session",
+          "auth": "authenticated",
+          "purpose": "Get current session summary",
+          "request_example": null,
+          "response_example": {
+            "authenticated": true,
+            "user": {
+              "email": "owner@test.com",
+              "platform_role": "owner"
+            }
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/login",
+          "auth": "public",
+          "purpose": "Login and receive token/cookie",
+          "request_example": {
+            "email": "owner@test.com",
+            "password": "Owner123."
+          },
+          "response_example": {
+            "access_token": "<jwt>",
+            "token_type": "bearer"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/register",
+          "auth": "public for bootstrap; restricted for managed role creation",
+          "purpose": "Create user. First user becomes global owner/admin depending on backend logic.",
+          "request_example": {
+            "email": "owner@test.com",
+            "password": "Owner123.",
+            "display_name": "Owner"
+          },
+          "response_example": {
+            "id": 1,
+            "email": "owner@test.com",
+            "is_active": true,
+            "platform_role": "owner"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/forgot-password/request-code",
+          "auth": "public",
+          "purpose": "Email reset code",
+          "request_example": {
+            "email": "admin@test.com"
+          },
+          "response_example": {
+            "message": "If an account exists for that email, a verification code has been sent."
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/forgot-password/verify-code",
+          "auth": "public",
+          "purpose": "Verify email code and receive reset token",
+          "request_example": {
+            "email": "admin@test.com",
+            "code": "123456"
+          },
+          "response_example": {
+            "message": "Code verified successfully",
+            "reset_token": "<jwt>"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/forgot-password/reset",
+          "auth": "public with reset token",
+          "purpose": "Reset password",
+          "request_example": {
+            "reset_token": "<jwt>",
+            "new_password": "NewPass123!",
+            "confirm_password": "NewPass123!"
+          },
+          "response_example": {
+            "message": "Password reset successful"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/auth/logout",
+          "auth": "authenticated",
+          "purpose": "Clear auth cookie / end session",
+          "request_example": null,
+          "response_example": {
+            "ok": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Profile & User Management",
+      "description": "Current user profile plus managed user creation, membership, and assignments.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/users/me",
+          "auth": "authenticated",
+          "purpose": "Current user profile with active role, memberships, and site assignments",
+          "request_example": null,
+          "response_example": {
+            "id": 7,
+            "email": "manager@test.com",
+            "active_role": "manager",
+            "active_organisation_id": 2,
+            "memberships": [],
+            "assignments": {
+              "site_ids": [],
+              "bin_ids": []
+            }
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/users/me",
+          "auth": "authenticated",
+          "purpose": "Update own display name",
+          "request_example": {
+            "display_name": "Adeel Ahmed"
+          },
+          "response_example": {
+            "id": 7,
+            "display_name": "Adeel Ahmed"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/users",
+          "auth": "manager+ typically",
+          "purpose": "List users with memberships and assignments",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 9,
+              "email": "operator@test.com",
+              "active_role": "operator"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/users",
+          "auth": "manager/admin/owner depending on requested role",
+          "purpose": "Create new user, optionally global or organisation-scoped",
+          "request_example": {
+            "email": "operator@test.com",
+            "password": "Operator123.",
+            "display_name": "Operator One",
+            "organisation_id": 2,
+            "role": "operator",
+            "site_ids": [
+              6,
+              7
+            ]
+          },
+          "response_example": {
+            "id": 12,
+            "email": "operator@test.com",
+            "active_role": "operator"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/users/{user_id}/memberships",
+          "auth": "owner/admin/manager subject to policy",
+          "purpose": "Attach an additional organisation membership",
+          "request_example": {
+            "organisation_id": 2,
+            "role": "viewer",
+            "is_default": false
+          },
+          "response_example": {
+            "id": 5,
+            "organisation_id": 2,
+            "user_id": 12,
+            "role": "viewer"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/users/{user_id}/assignments",
+          "auth": "manager+",
+          "purpose": "Replace site assignments for scoped users",
+          "request_example": {
+            "site_ids": [
+              6,
+              7
+            ],
+            "replace_existing": true
+          },
+          "response_example": {
+            "id": 12,
+            "assignments": {
+              "site_ids": [
+                6,
+                7
+              ],
+              "bin_ids": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Enterprise Management",
+      "description": "Organisation, site, zone, membership, device, notification, reporting, and audit APIs.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/organisations",
+          "auth": "authenticated",
+          "purpose": "List organisations visible to current user",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "name": "Hull City Council",
+              "slug": "hull-city-council"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/organisations",
+          "auth": "owner/admin",
+          "purpose": "Create organisation and slug",
+          "request_example": {
+            "name": "Hull City Council",
+            "description": "Main waste management organisation"
+          },
+          "response_example": {
+            "id": 1,
+            "name": "Hull City Council",
+            "slug": "hull-city-council"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/organisations/{organisation_id}",
+          "auth": "admin/owner",
+          "purpose": "Edit organisation details",
+          "request_example": {
+            "name": "Hull City Council Updated",
+            "description": "Updated description"
+          },
+          "response_example": {
+            "id": 1,
+            "name": "Hull City Council Updated"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/organisations/{organisation_id}",
+          "auth": "owner",
+          "purpose": "Delete organisation",
+          "request_example": null,
+          "response_example": {
+            "ok": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/sites",
+          "auth": "authenticated",
+          "purpose": "List sites optionally by organisation_id",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 6,
+              "organisation_id": 2,
+              "name": "Leeds City Centre"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/sites",
+          "auth": "manager+ within organisation",
+          "purpose": "Create site",
+          "request_example": {
+            "organisation_id": 2,
+            "name": "Headingley Area",
+            "code": "LEEDS-HD-01",
+            "address": "Headingley, LS6",
+            "lat": 53.8179,
+            "lon": -1.576
+          },
+          "response_example": {
+            "id": 8,
+            "organisation_id": 2,
+            "name": "Headingley Area"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/sites/{site_id}",
+          "auth": "manager+ within organisation",
+          "purpose": "Edit site",
+          "request_example": {
+            "name": "Headingley Area North"
+          },
+          "response_example": {
+            "id": 8,
+            "name": "Headingley Area North"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/sites/{site_id}",
+          "auth": "owner/admin/manager depending on org policy",
+          "purpose": "Delete site",
+          "request_example": null,
+          "response_example": {
+            "ok": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/zones",
+          "auth": "authenticated",
+          "purpose": "List zones optionally by site_id",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 21,
+              "site_id": 6,
+              "name": "Retail Core"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/zones",
+          "auth": "manager+ within organisation",
+          "purpose": "Create zone",
+          "request_example": {
+            "site_id": 6,
+            "name": "Retail Core",
+            "code": "LEEDS-CC-Z01",
+            "service_level": "General Waste"
+          },
+          "response_example": {
+            "id": 21,
+            "site_id": 6,
+            "name": "Retail Core"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/zones/{zone_id}",
+          "auth": "manager+ within organisation",
+          "purpose": "Edit zone",
+          "request_example": {
+            "service_level": "Mixed Recycling"
+          },
+          "response_example": {
+            "id": 21,
+            "service_level": "Mixed Recycling"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/zones/{zone_id}",
+          "auth": "owner/admin/manager depending on org policy",
+          "purpose": "Delete zone",
+          "request_example": null,
+          "response_example": {
+            "ok": true
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/memberships",
+          "auth": "authenticated",
+          "purpose": "List memberships; global roles can list all, scoped users list own/selected org",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "organisation_id": 2,
+              "user_id": 7,
+              "role": "manager"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/memberships",
+          "auth": "owner/admin/manager with restrictions",
+          "purpose": "Create membership record",
+          "request_example": {
+            "organisation_id": 2,
+            "user_id": 12,
+            "role": "operator",
+            "is_default": true
+          },
+          "response_example": {
+            "id": 8,
+            "organisation_id": 2,
+            "user_id": 12,
+            "role": "operator"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/devices",
+          "auth": "authenticated",
+          "purpose": "List devices optionally scoped by organisation/status",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 3,
+              "serial_number": "DEV-1001",
+              "status": "active"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/devices",
+          "auth": "manager+ within organisation",
+          "purpose": "Register device",
+          "request_example": {
+            "organisation_id": 2,
+            "site_id": 6,
+            "zone_id": 21,
+            "bin_id": "LEEDS-CC-001",
+            "serial_number": "DEV-1001",
+            "device_type": "sensor"
+          },
+          "response_example": {
+            "id": 3,
+            "serial_number": "DEV-1001"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/devices/{device_id}/heartbeat",
+          "auth": "authenticated or internal device feed",
+          "purpose": "Record device heartbeat",
+          "request_example": {
+            "battery_pct": 92,
+            "temperature_c": 23.4,
+            "payload": {
+              "rssi": -70
+            }
+          },
+          "response_example": {
+            "id": 14,
+            "device_id": 3
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/notification-channels",
+          "auth": "admin+",
+          "purpose": "List notification channels",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "name": "Ops Email",
+              "channel_type": "email"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/notification-channels",
+          "auth": "admin+",
+          "purpose": "Create notification channel",
+          "request_example": {
+            "organisation_id": 2,
+            "name": "Ops Email",
+            "channel_type": "email",
+            "target": "ops@test.com",
+            "enabled": true
+          },
+          "response_example": {
+            "id": 1,
+            "name": "Ops Email"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/notification-events",
+          "auth": "admin+",
+          "purpose": "List notification events",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "event_type": "alert.sent",
+              "status": "queued"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/notification-events",
+          "auth": "admin+",
+          "purpose": "Create notification event log",
+          "request_example": {
+            "organisation_id": 2,
+            "channel_id": 1,
+            "event_type": "alert.sent",
+            "payload": {
+              "alert_id": 3
+            }
+          },
+          "response_example": {
+            "id": 1,
+            "status": "queued"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/reports",
+          "auth": "manager+",
+          "purpose": "List scheduled reports",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "name": "Weekly Ops Summary",
+              "report_type": "ops_summary"
+            }
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/reports",
+          "auth": "manager+",
+          "purpose": "Create scheduled report",
+          "request_example": {
+            "organisation_id": 2,
+            "name": "Weekly Ops Summary",
+            "report_type": "ops_summary",
+            "cron_expr": "0 7 * * 1",
+            "format": "csv",
+            "recipients": [
+              "ops@test.com"
+            ]
+          },
+          "response_example": {
+            "id": 1,
+            "name": "Weekly Ops Summary"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/audit-logs",
+          "auth": "manager+",
+          "purpose": "List audit logs",
+          "request_example": null,
+          "response_example": [
+            {
+              "id": 1,
+              "action": "site.create",
+              "entity_type": "site",
+              "status": "success"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Bin Registry & Telemetry",
+      "description": "CRUD for bins and latest telemetry ingestion/readback.",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/bins",
+          "auth": "manager+ in organisation",
+          "purpose": "Create bin linked to organisation/site/zone",
+          "request_example": {
+            "organisation_id": 2,
+            "site_id": 6,
+            "zone_id": 21,
+            "name": "Briggate Bin",
+            "postcode": "LS1 6BR",
+            "sector": "LS1 6B",
+            "lat": 53.7997,
+            "lon": -1.5415,
+            "active": true,
+            "collection_interval_days": 7
+          },
+          "response_example": {
+            "bin_id": "LEEDS-CC-001",
+            "site_id": 6,
+            "zone_id": 21
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/bins",
+          "auth": "authenticated",
+          "purpose": "List bins with optional filters such as organisation/site/zone",
+          "request_example": null,
+          "response_example": [
+            {
+              "bin_id": "LEEDS-CC-001",
+              "site_id": 6,
+              "zone_id": 21
+            }
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/bins/{bin_id}",
+          "auth": "authenticated",
+          "purpose": "Read single bin",
+          "request_example": null,
+          "response_example": {
+            "bin_id": "LEEDS-CC-001",
+            "name": "Briggate Bin"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/bins/{bin_id}",
+          "auth": "manager+ in organisation",
+          "purpose": "Edit bin metadata",
+          "request_example": {
+            "name": "Briggate High Street Bin",
+            "collection_interval_days": 5
+          },
+          "response_example": {
+            "bin_id": "LEEDS-CC-001",
+            "name": "Briggate High Street Bin"
+          }
+        },
+        {
+          "method": "DELETE",
+          "path": "/bins/{bin_id}",
+          "auth": "manager+ / owner depending on policy",
+          "purpose": "Delete bin",
+          "request_example": null,
+          "response_example": {
+            "ok": true
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/bins/{bin_id}/telemetry",
+          "auth": "authenticated",
+          "purpose": "Ingest latest telemetry reading",
+          "request_example": {
+            "fill_level": 82,
+            "last_collection_hours": 36
+          },
+          "response_example": {
+            "id": 101,
+            "bin_id": "LEEDS-CC-001",
+            "fill_level": 82
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/bins/{bin_id}/telemetry/latest",
+          "auth": "authenticated",
+          "purpose": "Read latest telemetry for a bin",
+          "request_example": null,
+          "response_example": {
+            "id": 101,
+            "bin_id": "LEEDS-CC-001",
+            "fill_level": 82,
+            "last_collection_hours": 36
+          }
+        }
+      ]
+    },
+    {
+      "name": "Classification, Forecast & DDSS",
+      "description": "ML inference, forecasting, and decision support.",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/classify",
+          "auth": "authenticated",
+          "purpose": "Upload waste image for 6-class classification; optionally store against a bin",
+          "request_example": {
+            "multipart_form_data": {
+              "file": "<image>",
+              "bin_id": "LEEDS-CC-001"
+            }
+          },
+          "response_example": {
+            "predicted_class": "plastic",
+            "confidence": 0.71,
+            "top_k": [
+              {
+                "label": "plastic",
+                "confidence": 0.71
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/forecast",
+          "auth": "authenticated",
+          "purpose": "Predict future fill from current features",
+          "request_example": {
+            "bin_id": "LEEDS-CC-001",
+            "fill_level": 72,
+            "hour_of_day": 14,
+            "day": 2,
+            "weekend": 0,
+            "growth_rate": 1.6,
+            "lags": [
+              66,
+              69,
+              72
+            ]
+          },
+          "response_example": {
+            "predicted_fill_6h": 78.4
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/ddss/process-bin",
+          "auth": "authenticated",
+          "purpose": "One-bin DDSS style processing pipeline",
+          "request_example": {
+            "bin_id": "LEEDS-CC-001",
+            "fill_level": 72,
+            "last_collection_hours": 24
+          },
+          "response_example": {
+            "bin_id": "LEEDS-CC-001",
+            "priority_score": 81.4
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/ddss/run",
+          "auth": "authenticated",
+          "purpose": "Run organisation-wide or filtered DDSS ranking",
+          "request_example": {
+            "postcode": null,
+            "sector": null,
+            "limit": 100
+          },
+          "response_example": {
+            "run_id": 5,
+            "postcode_filter": null,
+            "ranked_bins": [
+              {
+                "bin_id": "LEEDS-CC-001",
+                "priority_score": 88.1
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/ddss/latest",
+          "auth": "authenticated",
+          "purpose": "Read latest DDSS run",
+          "request_example": null,
+          "response_example": {
+            "run_id": 5,
+            "ranked_bins": [
+              {
+                "bin_id": "LEEDS-CC-001",
+                "priority_score": 88.1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Routing & Map",
+      "description": "Priority-based route planning, VRP planning, and map projection.",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/routing/optimize",
+          "auth": "authenticated",
+          "purpose": "Optimize a submitted list of points",
+          "request_example": {
+            "depot_lat": 53.745,
+            "depot_lon": -0.335,
+            "capacity": 300,
+            "strategy": "priority_distance",
+            "points": [
+              {
+                "id": "BIN-001",
+                "lat": 53.74,
+                "lon": -0.33,
+                "priority": 82,
+                "demand": 80
+              }
+            ]
+          },
+          "response_example": {
+            "strategy": "priority_distance",
+            "total_distance_km": 13.34,
+            "trips": [
+              {
+                "stops": [
+                  "BIN-001"
+                ],
+                "trip_distance_km": 3.2
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/routing/plan-latest",
+          "auth": "authenticated",
+          "purpose": "Build route plan from latest DDSS run",
+          "request_example": {
+            "depot_lat": 53.745,
+            "depot_lon": -0.335,
+            "capacity": 300,
+            "strategy": "priority_distance",
+            "top_n": 20
+          },
+          "response_example": {
+            "plan_id": 2,
+            "decision_run_id": 5,
+            "strategy": "priority_distance"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/routing/plan-latest-vrp",
+          "auth": "authenticated",
+          "purpose": "Solve VRP on latest DDSS bins using OR-Tools",
+          "request_example": {
+            "depot_lat": 53.745,
+            "depot_lon": -0.335,
+            "capacity": 300,
+            "max_vehicles": 4,
+            "top_n": 30,
+            "priority_weight": 10.0,
+            "use_osrm": true
+          },
+          "response_example": {
+            "plan_id": 3,
+            "strategy": "vrp",
+            "total_distance_km": 11.2,
+            "trips": [
+              {
+                "stops": [
+                  {
+                    "bin_id": "BIN-001"
+                  }
+                ],
+                "trip_distance_km": 4.8
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/routing/latest",
+          "auth": "authenticated",
+          "purpose": "Latest stored route plan",
+          "request_example": null,
+          "response_example": {
+            "plan_id": 3,
+            "strategy": "vrp",
+            "trips": []
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/impact/latest",
+          "auth": "authenticated",
+          "purpose": "Routing impact / savings metrics",
+          "request_example": null,
+          "response_example": {
+            "plan_id": 3,
+            "distance_saved_km": 5.65,
+            "distance_saved_pct": 29.75
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/map/bins",
+          "auth": "authenticated",
+          "purpose": "Map-ready bin layer enriched with telemetry/DDSS/route status",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "bin_id": "BIN-001",
+                "status": "critical",
+                "in_latest_route": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Alerts, Analytics & Operations",
+      "description": "Operational dashboards, alert triage, and KPI summaries.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/alerts",
+          "auth": "authenticated",
+          "purpose": "List alerts with optional status, severity, organisation filters",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "id": 1,
+                "alert_type": "CRITICAL_FILL_PREDICTED",
+                "severity": "critical"
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/alerts/latest",
+          "auth": "authenticated",
+          "purpose": "Latest alerts feed",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "id": 1,
+                "message": "Bin predicted to overflow"
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/alerts/summary",
+          "auth": "authenticated",
+          "purpose": "Alert counts by state and severity",
+          "request_example": null,
+          "response_example": {
+            "open_total": 4,
+            "critical_total": 2,
+            "warning_total": 2,
+            "info_total": 0,
+            "acknowledged_total": 1,
+            "resolved_total": 3
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/alerts/{alert_id}",
+          "auth": "authenticated",
+          "purpose": "Acknowledge or resolve alert",
+          "request_example": {
+            "status": "acknowledged"
+          },
+          "response_example": {
+            "id": 1,
+            "status": "acknowledged"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/ops/summary",
+          "auth": "authenticated",
+          "purpose": "Top-level operational summary for dashboard cards",
+          "request_example": null,
+          "response_example": {
+            "total_bins": 120,
+            "critical_bins": 8,
+            "open_alerts": 12
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/overview",
+          "auth": "authenticated",
+          "purpose": "Analytics KPI overview",
+          "request_example": null,
+          "response_example": {
+            "avg_fill_today": 62.4,
+            "critical_alerts_today": 3
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/fill-trend",
+          "auth": "authenticated",
+          "purpose": "Fill trend series",
+          "request_example": null,
+          "response_example": {
+            "points": [
+              {
+                "ts": "2026-03-20T10:00:00Z",
+                "value": 64.1
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/analytics/class-distribution",
+          "auth": "authenticated",
+          "purpose": "Latest classification distribution",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "label": "plastic",
+                "count": 42
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Intelligence & Work Orders",
+      "description": "Risk, anomaly, contamination, monitoring, and task execution.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/risk/latest",
+          "auth": "authenticated",
+          "purpose": "Latest intelligence risk scores",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "bin_id": "BIN-001",
+                "risk_score": 0.84
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/anomalies",
+          "auth": "authenticated",
+          "purpose": "Recent anomalies in telemetry / model outputs",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "bin_id": "BIN-002",
+                "anomaly_type": "fill_jump"
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/explain/bin/{bin_id}",
+          "auth": "authenticated",
+          "purpose": "Explainability summary for a bin",
+          "request_example": null,
+          "response_example": {
+            "bin_id": "BIN-001",
+            "factors": [
+              {
+                "name": "predicted_fill_6h",
+                "weight": 0.55
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/contamination/cases",
+          "auth": "authenticated",
+          "purpose": "List contamination cases",
+          "request_example": null,
+          "response_example": {
+            "items": [
+              {
+                "id": 1,
+                "bin_id": "BIN-003",
+                "status": "open"
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/contamination/cases",
+          "auth": "operator+",
+          "purpose": "Create contamination case",
+          "request_example": {
+            "bin_id": "BIN-003",
+            "title": "Mixed waste contamination",
+            "description": "Plastic mixed with food waste"
+          },
+          "response_example": {
+            "id": 1,
+            "bin_id": "BIN-003",
+            "status": "open"
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/contamination/cases/{case_id}",
+          "auth": "operator+",
+          "purpose": "Update contamination case",
+          "request_example": {
+            "status": "resolved"
+          },
+          "response_example": {
+            "id": 1,
+            "status": "resolved"
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/monitoring/snapshots",
+          "auth": "admin/owner",
+          "purpose": "Store model monitoring snapshot",
+          "request_example": {
+            "model_name": "densenet121_final.keras",
+            "metric_name": "accuracy",
+            "metric_value": 0.83
+          },
+          "response_example": {
+            "id": 1,
+            "metric_name": "accuracy"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/monitoring/summary",
+          "auth": "admin/owner",
+          "purpose": "Read monitoring summary",
+          "request_example": null,
+          "response_example": {
+            "latest_snapshots": [],
+            "drift_flags": []
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/work-orders/from-alerts",
+          "auth": "manager+",
+          "purpose": "Generate work orders from alerts",
+          "request_example": {
+            "status": "open",
+            "severity": "critical",
+            "limit": 20
+          },
+          "response_example": {
+            "created": 4
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/work-orders/from-latest-route",
+          "auth": "manager+",
+          "purpose": "Generate work orders from latest route plan",
+          "request_example": {
+            "assign_to": "team-alpha"
+          },
+          "response_example": {
+            "created": 7
+          }
+        },
+        {
+          "method": "PATCH",
+          "path": "/work-orders/{work_order_id}",
+          "auth": "operator assigned / manager+",
+          "purpose": "Update work order status and notes",
+          "request_example": {
+            "status": "completed",
+            "resolution_notes": "Collected successfully"
+          },
+          "response_example": {
+            "id": 11,
+            "status": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}
