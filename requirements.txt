@@ -15,7 +15,7 @@ asyncpg==0.29.0
 
 tensorflow==2.16.1
 
-ortools==9.10.4067
+ortools==9.9.3963
 
 alembic==1.13.2
 psycopg2-binary==2.9.9
