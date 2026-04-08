@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_default_membership, get_user_memberships
 from app.core.security import hash_password
-from app.db.models import User
+from app.db.models import (
+    OrganisationMembership,
+    PasswordResetCode,
+    User,
+    UserBinAssignment,
+    UserSiteAssignment,
+)
 from app.db.session import get_session
 from app.repositories.users import (
     create_membership,
@@ -14,7 +21,6 @@ from app.repositories.users import (
     get_user_by_email,
     get_user_by_id,
     get_user_site_ids,
-    list_user_memberships,
     list_users as repo_list_users,
     replace_user_bin_assignments,
     replace_user_site_assignments,
@@ -68,6 +74,16 @@ async def _build_user_payload(db: AsyncSession, user: User) -> UserListItemOut:
     )
 
 
+def _is_global_privileged_role(payload: UserListItemOut) -> bool:
+    return payload.platform_role in {'owner', 'admin'} or payload.active_role in {'owner', 'admin'}
+
+
+def _shares_org(payload: UserListItemOut, organisation_id: int | None) -> bool:
+    if organisation_id is None:
+        return False
+    return any(m.organisation_id == organisation_id for m in payload.memberships)
+
+
 @router.get('/me', response_model=UserMeOut)
 async def me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_session)):
     return await _build_user_payload(db, user)
@@ -98,10 +114,29 @@ async def list_users(
     items: list[UserListItemOut] = []
     for row in rows:
         item = await _build_user_payload(db, row)
-        if organisation_id is not None and not any(m.organisation_id == organisation_id for m in item.memberships):
-            continue
-        if role is not None and not any(m.role == role for m in item.memberships):
-            continue
+
+        if current_user.platform_role == 'admin':
+            if item.platform_role in {'owner', 'admin'} or item.active_role in {'owner', 'admin'}:
+                continue
+
+        if me.active_role == 'manager':
+            if item.platform_role in {'owner', 'admin'} or item.active_role in {'owner', 'admin'}:
+                continue
+            if me.active_organisation_id is None:
+                continue
+            if not _shares_org(item, me.active_organisation_id):
+                continue
+
+        if organisation_id is not None:
+            if item.platform_role not in {'owner', 'admin'}:
+                if not any(m.organisation_id == organisation_id for m in item.memberships):
+                    continue
+
+        if role is not None:
+            role_matches = item.platform_role == role or item.active_role == role or any(m.role == role for m in item.memberships)
+            if not role_matches:
+                continue
+
         items.append(item)
     return items
 
@@ -120,22 +155,23 @@ async def create_user_with_access(
     if requested_role not in ALLOWED_ROLES:
         raise HTTPException(status_code=400, detail='Invalid role')
 
-    # manager cannot create global roles
-    if me.active_role == 'manager' and requested_role in {'owner', 'admin'}:
-        raise HTTPException(status_code=403, detail='Manager cannot create owner/admin users')
+    if me.active_role == 'manager' and requested_role in {'owner', 'admin', 'manager'}:
+        raise HTTPException(status_code=403, detail='Manager can only create operator/viewer users')
 
-    # admin cannot create owner
-    if requested_role == 'owner' and (current_user.platform_role != 'owner'):
+    if requested_role == 'owner' and current_user.platform_role != 'owner':
         raise HTTPException(status_code=403, detail='Only owner can create another owner')
 
     existing = await get_user_by_email(db, payload.email.lower().strip())
     if existing:
         raise HTTPException(status_code=409, detail='Email already registered')
 
-    password_hash = hash_password(payload.password)
+    try:
+        password_hash = hash_password(payload.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     platform_role = requested_role if requested_role in {'owner', 'admin'} else None
 
-    # manager can only create scoped users in their own organisation
     if me.active_role == 'manager':
         if payload.organisation_id is None:
             raise HTTPException(status_code=400, detail='organisation_id is required')
@@ -163,13 +199,63 @@ async def create_user_with_access(
             is_default=payload.is_default_membership,
         )
 
-    # site assignment only for operator/viewer
     if requested_role in {'operator', 'viewer'} and payload.site_ids:
         await replace_user_site_assignments(db, user.id, payload.site_ids)
 
     await db.commit()
     await db.refresh(user)
     return await _build_user_payload(db, user)
+
+
+@router.delete('/{user_id}')
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    me = await _build_user_payload(db, current_user)
+    if not _can_manage_users(current_user, me.active_role):
+        raise HTTPException(status_code=403, detail='Only manager/admin/owner can delete users')
+
+    target = await get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail='User not found')
+
+    if target.id == current_user.id:
+        raise HTTPException(status_code=400, detail='You cannot delete your own account')
+
+    target_payload = await _build_user_payload(db, target)
+    target_is_global = _is_global_privileged_role(target_payload)
+
+    if current_user.platform_role == 'owner':
+        if target.platform_role == 'owner':
+            owner_count = await db.scalar(select(func.count(User.id)).where(User.platform_role == 'owner'))
+            if (owner_count or 0) <= 1:
+                raise HTTPException(status_code=400, detail='Cannot delete the last owner account')
+    elif current_user.platform_role == 'admin':
+        if target_is_global:
+            raise HTTPException(status_code=403, detail='Admin cannot delete owner/admin users')
+    elif me.active_role == 'manager':
+        if target_is_global or target_payload.active_role == 'manager':
+            raise HTTPException(status_code=403, detail='Manager can only delete operator/viewer users')
+        if me.active_organisation_id is None:
+            raise HTTPException(status_code=403, detail='Manager has no active organisation')
+        if not _shares_org(target_payload, me.active_organisation_id):
+            raise HTTPException(status_code=403, detail='Manager can only delete users in their own organisation')
+
+    await db.execute(delete(UserSiteAssignment).where(UserSiteAssignment.user_id == user_id))
+    await db.execute(delete(UserBinAssignment).where(UserBinAssignment.user_id == user_id))
+    await db.execute(delete(OrganisationMembership).where(OrganisationMembership.user_id == user_id))
+    await db.execute(delete(PasswordResetCode).where(PasswordResetCode.user_id == user_id))
+    await db.delete(target)
+    await db.commit()
+
+    return {
+        'ok': True,
+        'deleted_user_id': user_id,
+        'deleted_email': target.email,
+        'deleted_role': target_payload.active_role,
+    }
 
 
 @router.post('/{user_id}/memberships', response_model=UserListItemOut)
@@ -211,11 +297,9 @@ async def update_assignments(
 
     target_payload = await _build_user_payload(db, target)
 
-    # only operator/viewer should be assigned sites
     if target_payload.active_role not in {'operator', 'viewer'}:
         raise HTTPException(status_code=400, detail='Assignments are only allowed for operator/viewer')
 
-    # manager can only assign users inside own organisation
     if me.active_role == 'manager':
         if me.active_organisation_id is None:
             raise HTTPException(status_code=403, detail='Manager has no active organisation')
@@ -223,7 +307,6 @@ async def update_assignments(
             raise HTTPException(status_code=403, detail='Manager can only manage users in their own organisation')
 
     await replace_user_site_assignments(db, user_id, payload.site_ids)
-    # direct bin assignment removed
     await replace_user_bin_assignments(db, user_id, [])
     await db.commit()
     return await _build_user_payload(db, target)

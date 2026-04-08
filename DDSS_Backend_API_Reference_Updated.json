@@ -233,6 +233,19 @@
           }
         },
         {
+          "method": "DELETE",
+          "path": "/users/{user_id}",
+          "auth": "owner/admin/manager depending on target role",
+          "purpose": "Delete a user account with RBAC rules. Owner can delete any user except self and the last remaining owner. Admin can delete manager/operator/viewer users only. Manager can delete operator/viewer users only inside their own organisation.",
+          "request_example": null,
+          "response_example": {
+            "ok": true,
+            "deleted_user_id": 12,
+            "deleted_email": "operator@test.com",
+            "deleted_role": "operator"
+          }
+        },
+        {
           "method": "POST",
           "path": "/users/{user_id}/memberships",
           "auth": "owner/admin/manager subject to policy",
