@@ -15,6 +15,15 @@ async def create_bin(
     name: str | None,
     postcode: str | None,
     sector: str | None,
+    address_line_1: str | None,
+    address_line_2: str | None,
+    city: str | None,
+    county: str | None,
+    country: str | None,
+    formatted_address: str | None,
+    geocode_place_id: str | None,
+    geocode_source: str | None,
+    geocode_confidence: float | None,
     lat: float,
     lon: float,
     active: bool,
@@ -30,6 +39,15 @@ async def create_bin(
         name=name,
         postcode=postcode,
         sector=sector,
+        address_line_1=address_line_1,
+        address_line_2=address_line_2,
+        city=city,
+        county=county,
+        country=country,
+        formatted_address=formatted_address,
+        geocode_place_id=geocode_place_id,
+        geocode_source=geocode_source,
+        geocode_confidence=geocode_confidence,
         lat=lat,
         lon=lon,
         active=active,
@@ -81,7 +99,6 @@ async def list_bins(
     query = query.order_by(Bin.created_at.desc()).limit(limit)
     result = await session.execute(query)
     return list(result.scalars().all())
-
 
 
 async def update_bin(

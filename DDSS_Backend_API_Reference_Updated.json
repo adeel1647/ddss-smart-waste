@@ -1,7 +1,7 @@
 {
   "meta": {
     "project": "DDSS Smart Waste Management",
-    "version_basis": "Generated from uploaded backend/frontend source on 2026-03-23",
+    "version_basis": "Updated for address-first UK geocoding flow on 2026-04-08",
     "base_url": "/api/v1",
     "auth": {
       "methods": [
@@ -18,7 +18,10 @@
       "Some list endpoints accept organisation_id for scoped filtering.",
       "Global platform roles are owner and admin via users.platform_role.",
       "Scoped roles are owner/admin/manager/operator/viewer via organisation_memberships.",
-      "Frontend uses React Query wrappers in frontend/lib/queries.ts for most endpoints."
+      "Frontend uses React Query wrappers in frontend/lib/queries.ts for most endpoints.",
+      "Location entry is now address-first: frontend/users can provide postcode, address text, or selected geocode place_id instead of manually typing lat/lon.",
+      "The backend still stores resolved lat/lon internally for routing, maps, and distance-based operations.",
+      "New geocoding endpoints live under /geo and use an OpenStreetMap/Nominatim-compatible service."
     ]
   },
   "categories": [
@@ -56,6 +59,71 @@
           "response_example": {
             "platform": "DDSS Smart Waste",
             "supported_classes": 6
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geocoding & Address Search",
+      "description": "UK-focused postcode/address search and address resolution endpoints.",
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/geo/search",
+          "auth": "authenticated",
+          "purpose": "Search UK addresses or postcodes and return selectable suggestions with resolved coordinates.",
+          "request_example": {
+            "q": "LS1 6BR",
+            "limit": 6
+          },
+          "response_example": {
+            "query": "LS1 6BR",
+            "items": [
+              {
+                "place_id": "123456789",
+                "display_name": "12 Briggate, Leeds, LS1 6BR, United Kingdom",
+                "postcode": "LS1 6BR",
+                "lat": 53.7997,
+                "lon": -1.5415
+              }
+            ]
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/geo/postcode/{postcode}",
+          "auth": "authenticated",
+          "purpose": "Look up address suggestions for a postcode.",
+          "request_example": null,
+          "response_example": {
+            "query": "LS1 6BR",
+            "items": [
+              {
+                "place_id": "123456789",
+                "display_name": "12 Briggate, Leeds, LS1 6BR, United Kingdom",
+                "lat": 53.7997,
+                "lon": -1.5415
+              }
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "path": "/geo/resolve",
+          "auth": "authenticated",
+          "purpose": "Resolve a selected address or postcode into a normalized address plus lat/lon.",
+          "request_example": {
+            "postcode": "LS1 6BR",
+            "address_line_1": "12 Briggate",
+            "city": "Leeds"
+          },
+          "response_example": {
+            "place_id": "123456789",
+            "display_name": "12 Briggate, Leeds, LS1 6BR, United Kingdom",
+            "postcode": "LS1 6BR",
+            "lat": 53.7997,
+            "lon": -1.5415,
+            "source": "nominatim"
           }
         }
       ]
@@ -233,19 +301,6 @@
           }
         },
         {
-          "method": "DELETE",
-          "path": "/users/{user_id}",
-          "auth": "owner/admin/manager depending on target role",
-          "purpose": "Delete a user account with RBAC rules. Owner can delete any user except self and the last remaining owner. Admin can delete manager/operator/viewer users only. Manager can delete operator/viewer users only inside their own organisation.",
-          "request_example": null,
-          "response_example": {
-            "ok": true,
-            "deleted_user_id": 12,
-            "deleted_email": "operator@test.com",
-            "deleted_role": "operator"
-          }
-        },
-        {
           "method": "POST",
           "path": "/users/{user_id}/memberships",
           "auth": "owner/admin/manager subject to policy",
@@ -362,32 +417,38 @@
           "method": "POST",
           "path": "/sites",
           "auth": "manager+ within organisation",
-          "purpose": "Create site",
+          "purpose": "Create site using postcode/address-first input; backend resolves and stores lat/lon internally",
           "request_example": {
             "organisation_id": 2,
             "name": "Headingley Area",
             "code": "LEEDS-HD-01",
-            "address": "Headingley, LS6",
-            "lat": 53.8179,
-            "lon": -1.576
+            "postcode": "LS6 3HG",
+            "address_line_1": "45 Otley Road",
+            "city": "Leeds"
           },
           "response_example": {
             "id": 8,
             "organisation_id": 2,
-            "name": "Headingley Area"
+            "name": "Headingley Area",
+            "postcode": "LS6 3HG",
+            "formatted_address": "45 Otley Road, Headingley, Leeds, LS6 3HG, United Kingdom",
+            "lat": 53.8179,
+            "lon": -1.576
           }
         },
         {
           "method": "PATCH",
           "path": "/sites/{site_id}",
           "auth": "manager+ within organisation",
-          "purpose": "Edit site",
+          "purpose": "Edit site address or metadata; backend re-geocodes when location fields change",
           "request_example": {
-            "name": "Headingley Area North"
+            "postcode": "LS6 3HG",
+            "address_line_1": "47 Otley Road"
           },
           "response_example": {
             "id": 8,
-            "name": "Headingley Area North"
+            "name": "Headingley Area North",
+            "formatted_address": "47 Otley Road, Headingley, Leeds, LS6 3HG, United Kingdom"
           }
         },
         {
@@ -658,23 +719,26 @@
           "method": "POST",
           "path": "/bins",
           "auth": "manager+ in organisation",
-          "purpose": "Create bin linked to organisation/site/zone",
+          "purpose": "Create bin linked to organisation/site/zone using address-first input; backend resolves coordinates internally",
           "request_example": {
             "organisation_id": 2,
             "site_id": 6,
             "zone_id": 21,
-            "name": "Briggate Bin",
+            "name": "Briggate Shop Bin",
             "postcode": "LS1 6BR",
-            "sector": "LS1 6B",
-            "lat": 53.7997,
-            "lon": -1.5415,
+            "address_line_1": "12 Briggate",
+            "city": "Leeds",
             "active": true,
             "collection_interval_days": 7
           },
           "response_example": {
             "bin_id": "LEEDS-CC-001",
             "site_id": 6,
-            "zone_id": 21
+            "zone_id": 21,
+            "postcode": "LS1 6BR",
+            "formatted_address": "12 Briggate, Leeds, LS1 6BR, United Kingdom",
+            "lat": 53.7997,
+            "lon": -1.5415
           }
         },
         {
@@ -708,12 +772,20 @@
           "auth": "manager+ in organisation",
           "purpose": "Edit bin metadata",
           "request_example": {
+            "organisation_id": 2,
+            "site_id": 6,
+            "zone_id": 21,
             "name": "Briggate High Street Bin",
-            "collection_interval_days": 5
+            "postcode": "LS1 6BR",
+            "address_line_1": "14 Briggate",
+            "city": "Leeds",
+            "collection_interval_days": 5,
+            "active": true
           },
           "response_example": {
             "bin_id": "LEEDS-CC-001",
-            "name": "Briggate High Street Bin"
+            "name": "Briggate High Street Bin",
+            "formatted_address": "14 Briggate, Leeds, LS1 6BR, United Kingdom"
           }
         },
         {
@@ -866,10 +938,11 @@
           "method": "POST",
           "path": "/routing/optimize",
           "auth": "authenticated",
-          "purpose": "Optimize a submitted list of points",
+          "purpose": "Optimize a submitted list of points; depot can now be supplied as postcode/address or coordinates",
           "request_example": {
-            "depot_lat": 53.745,
-            "depot_lon": -0.335,
+            "depot_postcode": "HU1 2AA",
+            "depot_address_line_1": "Guildhall Road Depot",
+            "depot_city": "Hull",
             "capacity": 300,
             "strategy": "priority_distance",
             "points": [
@@ -892,17 +965,19 @@
                 ],
                 "trip_distance_km": 3.2
               }
-            ]
+            ],
+            "depot_display_name": "Guildhall Road Depot, Hull, HU1 2AA, United Kingdom"
           }
         },
         {
           "method": "POST",
           "path": "/routing/plan-latest",
           "auth": "authenticated",
-          "purpose": "Build route plan from latest DDSS run",
+          "purpose": "Build route plan from latest DDSS run using depot postcode/address or coordinates",
           "request_example": {
-            "depot_lat": 53.745,
-            "depot_lon": -0.335,
+            "depot_postcode": "HU1 2AA",
+            "depot_address_line_1": "Guildhall Road Depot",
+            "depot_city": "Hull",
             "capacity": 300,
             "strategy": "priority_distance",
             "top_n": 20
@@ -910,17 +985,19 @@
           "response_example": {
             "plan_id": 2,
             "decision_run_id": 5,
-            "strategy": "priority_distance"
+            "strategy": "priority_distance",
+            "depot_display_name": "Guildhall Road Depot, Hull, HU1 2AA, United Kingdom"
           }
         },
         {
           "method": "POST",
           "path": "/routing/plan-latest-vrp",
           "auth": "authenticated",
-          "purpose": "Solve VRP on latest DDSS bins using OR-Tools",
+          "purpose": "Solve VRP on latest DDSS bins using OR-Tools with depot postcode/address or coordinates",
           "request_example": {
-            "depot_lat": 53.745,
-            "depot_lon": -0.335,
+            "depot_postcode": "HU1 2AA",
+            "depot_address_line_1": "Guildhall Road Depot",
+            "depot_city": "Hull",
             "capacity": 300,
             "max_vehicles": 4,
             "top_n": 30,
@@ -940,7 +1017,8 @@
                 ],
                 "trip_distance_km": 4.8
               }
-            ]
+            ],
+            "depot_display_name": "Guildhall Road Depot, Hull, HU1 2AA, United Kingdom"
           }
         },
         {

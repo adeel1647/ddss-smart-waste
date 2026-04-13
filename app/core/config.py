@@ -71,6 +71,21 @@ class Settings(BaseSettings):
     ddss_run_rate_limit_per_minute: int = 10
     route_plan_rate_limit_per_minute: int = 10
 
+    # Geocoding / address-first location entry
+    geocode_enabled: bool = True
+    geocode_provider: str = 'google'
+    geocode_base_url: str = 'https://ga.ideal-postcodes.co.uk'
+    geocode_email: str | None = None
+    geocode_user_agent: str = 'DDSS-Smart-Waste/1.0 (contact: admin@example.com)'
+    geocode_country_codes: str = 'gb'
+    geocode_default_country: str = 'United Kingdom'
+    geocode_timeout_seconds: float = 12.0
+    geocode_limit: int = 8
+    geocode_accept_language: str = 'en-GB'
+    geocode_allow_manual_override: bool = True
+    geocode_api_key: str | None = None
+
+
     @field_validator('jwt_secret')
     @classmethod
     def validate_jwt_secret(cls, value: str) -> str:
@@ -102,6 +117,11 @@ class Settings(BaseSettings):
         if value not in {'lax', 'strict', 'none'}:
             raise ValueError("COOKIE_SAMESITE must be one of: lax, strict, none")
         return value
+
+    @field_validator('geocode_limit')
+    @classmethod
+    def validate_geocode_limit(cls, value: int) -> int:
+        return max(1, min(value, 10))
 
 
 settings = Settings()

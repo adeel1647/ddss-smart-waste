@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator, field_validator
+
+from app.services.geocoding import normalize_postcode
 
 MembershipRole = Literal['viewer', 'operator', 'manager', 'admin', 'owner']
 
@@ -12,7 +14,7 @@ class OrganisationCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     slug: str | None = Field(default=None, min_length=2, max_length=120)
     description: str | None = None
-    
+
 
 class OrganisationOut(BaseModel):
     id: int
@@ -29,8 +31,36 @@ class SiteCreate(BaseModel):
     name: str
     code: str | None = None
     address: str | None = None
-    lat: float | None = None
-    lon: float | None = None
+    postcode: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    county: str | None = None
+    country: str | None = 'United Kingdom'
+    formatted_address: str | None = None
+    geocode_place_id: str | None = None
+    geocode_source: str | None = None
+    geocode_confidence: float | None = Field(default=None, ge=0.0)
+    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
+    lon: float | None = Field(default=None, ge=-180.0, le=180.0)
+    allow_manual_override: bool = False
+
+    @field_validator('code', 'address', 'postcode', 'address_line_1', 'address_line_2', 'city', 'county', 'country', 'formatted_address', 'geocode_place_id', 'geocode_source')
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @model_validator(mode='after')
+    def validate_location_input(self):
+        has_coords = self.lat is not None and self.lon is not None
+        has_address = any([self.postcode, self.address, self.formatted_address, self.address_line_1, self.geocode_place_id])
+        if not has_coords and not has_address:
+            raise ValueError('Provide either lat/lon or an address/postcode to locate the site')
+        self.postcode = normalize_postcode(self.postcode)
+        return self
 
 
 class SiteOut(BaseModel):
@@ -39,6 +69,16 @@ class SiteOut(BaseModel):
     name: str
     code: str | None = None
     address: str | None = None
+    postcode: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    county: str | None = None
+    country: str | None = None
+    formatted_address: str | None = None
+    geocode_place_id: str | None = None
+    geocode_source: str | None = None
+    geocode_confidence: float | None = None
     lat: float | None = None
     lon: float | None = None
     is_active: bool
@@ -63,8 +103,6 @@ class ZoneOut(BaseModel):
     updated_at: datetime
 
 
-
-
 class OrganisationUpdate(BaseModel):
     name: str | None = None
     slug: str | None = None
@@ -76,9 +114,28 @@ class SiteUpdate(BaseModel):
     name: str | None = None
     code: str | None = None
     address: str | None = None
-    lat: float | None = None
-    lon: float | None = None
+    postcode: str | None = None
+    address_line_1: str | None = None
+    address_line_2: str | None = None
+    city: str | None = None
+    county: str | None = None
+    country: str | None = None
+    formatted_address: str | None = None
+    geocode_place_id: str | None = None
+    geocode_source: str | None = None
+    geocode_confidence: float | None = Field(default=None, ge=0.0)
+    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
+    lon: float | None = Field(default=None, ge=-180.0, le=180.0)
     is_active: bool | None = None
+    allow_manual_override: bool = False
+
+    @field_validator('code', 'address', 'postcode', 'address_line_1', 'address_line_2', 'city', 'county', 'country', 'formatted_address', 'geocode_place_id', 'geocode_source')
+    @classmethod
+    def clean_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class ZoneUpdate(BaseModel):

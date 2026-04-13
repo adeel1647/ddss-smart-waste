@@ -18,6 +18,7 @@ from app.api.routes.classify import router as classify_router
 from app.api.routes.ddss_latest import router as ddss_latest_router
 from app.api.routes.ddss_run import router as ddss_run_router
 from app.api.routes.forecast import router as forecast_router
+from app.api.routes.geo import router as geo_router
 from app.api.routes.health import router as health_router
 from app.api.routes.map import router as map_router
 from app.api.routes.ops import router as ops_router
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
         raise ValueError(f"API_PREFIX must start with '/'. Current value: {prefix!r}")
 
     app.include_router(health_router, prefix=prefix)
+    app.include_router(geo_router, prefix=prefix)
     app.include_router(bins_router, prefix=prefix)
     app.include_router(telemetry_router, prefix=prefix)
     app.include_router(classify_router, prefix=prefix)

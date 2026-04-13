@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_client_ip, get_current_user
@@ -13,19 +12,30 @@ from app.db.session import get_session
 from app.repositories.bins import get_bins_by_ids
 from app.repositories.decisions import latest_run, list_items_for_run
 from app.repositories.routes import create_plan_with_trips, trips_for_plan
+from app.schemas.routing import PlanLatestVrpRequest
+from app.services.geocoding import GeocodingError, GeocodingService
 from app.services.routing_vrp import VrpNode, solve_vrp
 
 router = APIRouter(tags=['routing'])
 
 
-class PlanLatestVrpRequest(BaseModel):
-    depot_lat: float
-    depot_lon: float
-    capacity: int = Field(ge=1, description='Vehicle capacity in demand units')
-    max_vehicles: int = Field(default=6, ge=1, le=20)
-    top_n: int = Field(default=50, ge=1, le=500)
-    priority_weight: float = Field(default=10.0, ge=0.0, le=500.0)
-    use_osrm: bool = Field(default=True, description='Fetch road geometry via OSRM (may be rate-limited)')
+async def _resolve_depot(req: PlanLatestVrpRequest):
+    try:
+        return await GeocodingService.resolve(
+            place_id=req.depot_place_id,
+            query=req.depot_address,
+            postcode=req.depot_postcode,
+            address_line_1=req.depot_address_line_1,
+            address_line_2=req.depot_address_line_2,
+            city=req.depot_city,
+            county=req.depot_county,
+            country=req.depot_country,
+            lat=req.depot_lat,
+            lon=req.depot_lon,
+            allow_manual_override=True,
+        )
+    except GeocodingError as exc:
+        raise HTTPException(status_code=400, detail=f'Invalid depot location: {exc}') from exc
 
 
 @router.post('/routing/plan-latest-vrp')
@@ -43,6 +53,7 @@ async def plan_latest_vrp(
         detail='Too many VRP planning requests. Please wait a moment and try again.',
     )
 
+    depot = await _resolve_depot(req)
     run = await latest_run(session)
     if run is None:
         raise HTTPException(status_code=404, detail='No decision run found (run /ddss/run first).')
@@ -50,7 +61,7 @@ async def plan_latest_vrp(
     items = (await list_items_for_run(session, run.id))[: req.top_n]
     bins_by_id = await get_bins_by_ids(session, [it.bin_id for it in items])
 
-    nodes: list[VrpNode] = [VrpNode(key='DEPOT', lat=req.depot_lat, lon=req.depot_lon, demand=0, priority=0.0)]
+    nodes: list[VrpNode] = [VrpNode(key='DEPOT', lat=depot.lat, lon=depot.lon, demand=0, priority=0.0)]
     total_demand = 0
 
     for it in items:
@@ -88,8 +99,8 @@ async def plan_latest_vrp(
         decision_run_id=run.id,
         strategy='vrp',
         capacity=float(req.capacity),
-        depot_lat=req.depot_lat,
-        depot_lon=req.depot_lon,
+        depot_lat=depot.lat,
+        depot_lon=depot.lon,
         total_distance_km=float(result['total_distance_km']),
         trips=result['trips'],
     )
@@ -115,5 +126,8 @@ async def plan_latest_vrp(
         'decision_run_id': run.id,
         'strategy': 'vrp',
         'total_distance_km': float(result['total_distance_km']),
+        'depot_display_name': depot.display_name,
+        'depot_lat': depot.lat,
+        'depot_lon': depot.lon,
         'trips': out_trips,
     }
