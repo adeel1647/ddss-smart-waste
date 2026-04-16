@@ -71,16 +71,16 @@ class Settings(BaseSettings):
     ddss_run_rate_limit_per_minute: int = 10
     route_plan_rate_limit_per_minute: int = 10
 
-    # Geocoding / address-first location entry
+     # Geocoding / address-first location entry
     geocode_enabled: bool = True
-    geocode_provider: str = 'google'
-    geocode_base_url: str = 'https://ga.ideal-postcodes.co.uk'
+    geocode_provider: str = 'postcoder'
+    geocode_base_url: str = 'https://ws.postcoder.com'
     geocode_email: str | None = None
     geocode_user_agent: str = 'DDSS-Smart-Waste/1.0 (contact: admin@example.com)'
     geocode_country_codes: str = 'gb'
     geocode_default_country: str = 'United Kingdom'
     geocode_timeout_seconds: float = 12.0
-    geocode_limit: int = 8
+    geocode_limit: int = 25
     geocode_accept_language: str = 'en-GB'
     geocode_allow_manual_override: bool = True
     geocode_api_key: str | None = None
@@ -121,7 +121,7 @@ class Settings(BaseSettings):
     @field_validator('geocode_limit')
     @classmethod
     def validate_geocode_limit(cls, value: int) -> int:
-        return max(1, min(value, 10))
+        return max(1, min(value, 25))
 
 
 settings = Settings()

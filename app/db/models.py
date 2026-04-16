@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Column, Index, Integer, String, Text, UniqueConstraint, func, event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
+from sqlalchemy.dialects.postgresql import JSONB
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -51,17 +51,12 @@ class Site(Base):
     code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     postcode: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
-    address_line_1: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    address_line_2: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    city: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
-    county: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(80), nullable=True, default='United Kingdom')
-    formatted_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    geocode_place_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
-    geocode_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    geocode_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    boundary_geojson: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default='true', nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now(), nullable=False)
@@ -72,7 +67,6 @@ class Site(Base):
     devices: Mapped[List['Device']] = relationship(back_populates='site')
 
     __table_args__ = (UniqueConstraint('organisation_id', 'name', name='uq_sites_org_name'),)
-
 
 class Zone(Base):
     __tablename__ = 'zones'

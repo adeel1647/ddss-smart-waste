@@ -11,7 +11,7 @@ router = APIRouter(prefix='/geo', tags=['geo'])
 @router.get('/search', response_model=AddressSearchResponse)
 async def search_addresses(
     q: str = Query(min_length=2, description='Postcode or address search text'),
-    limit: int = Query(default=6, ge=1, le=10),
+    limit: int = Query(default=12, ge=1, le=25),
 ):
     try:
         items = await GeocodingService.search(q, limit=limit)
@@ -26,7 +26,7 @@ async def search_addresses(
 @router.get('/postcode/{postcode}', response_model=AddressSearchResponse)
 async def search_by_postcode(
     postcode: str,
-    limit: int = Query(default=6, ge=1, le=10),
+    limit: int = Query(default=25, ge=1, le=25),
 ):
     try:
         items = await GeocodingService.search(postcode, limit=limit)

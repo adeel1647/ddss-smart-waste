@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse
-
+from sqlalchemy.exc import SQLAlchemyError
 from app.api.routes.alerts import router as alerts_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
@@ -68,7 +68,32 @@ def create_app() -> FastAPI:
 
         try:
             response = await call_next(request)
-        except Exception:
+        except SQLAlchemyError as exc:
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            log.exception(
+                'Database request error',
+                extra={
+                    'request_id': request_id,
+                    'method': request.method,
+                    'path': request.url.path,
+                    'duration_ms': duration_ms,
+                    'client_ip': request.client.host if request.client else 'unknown',
+                },
+            )
+
+            db_message = str(getattr(exc, "orig", exc)) or exc.__class__.__name__
+
+            return JSONResponse(
+                status_code=500,
+                content={
+                    'detail': db_message,
+                    'error_type': exc.__class__.__name__,
+                    'request_id': request_id,
+                },
+                headers={'X-Request-ID': request_id},
+            )
+
+        except Exception as exc:
             duration_ms = round((time.perf_counter() - start) * 1000, 2)
             log.exception(
                 'Unhandled request error',
@@ -80,9 +105,14 @@ def create_app() -> FastAPI:
                     'client_ip': request.client.host if request.client else 'unknown',
                 },
             )
+
             return JSONResponse(
                 status_code=500,
-                content={'detail': 'Internal server error', 'request_id': request_id},
+                content={
+                    'detail': str(exc) or 'Internal server error',
+                    'error_type': exc.__class__.__name__,
+                    'request_id': request_id,
+                },
                 headers={'X-Request-ID': request_id},
             )
 

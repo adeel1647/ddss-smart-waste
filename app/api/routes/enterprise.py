@@ -5,7 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_active_org_context, require_roles, get_current_user, require_org_permission
 from app.db.models import OrganisationMembership, Site, User, Zone
 from app.db.session import get_session
@@ -73,42 +73,54 @@ def _map_site(row: Site) -> SiteOut:
         name=row.name,
         code=row.code,
         address=row.address,
-        postcode=getattr(row, 'postcode', None),
-        address_line_1=getattr(row, 'address_line_1', None),
-        address_line_2=getattr(row, 'address_line_2', None),
-        city=getattr(row, 'city', None),
-        county=getattr(row, 'county', None),
-        country=getattr(row, 'country', None),
-        formatted_address=getattr(row, 'formatted_address', None),
-        geocode_place_id=getattr(row, 'geocode_place_id', None),
-        geocode_source=getattr(row, 'geocode_source', None),
-        geocode_confidence=getattr(row, 'geocode_confidence', None),
+        postcode=row.postcode,
         lat=row.lat,
         lon=row.lon,
+        boundary_geojson=row.boundary_geojson,
         is_active=row.is_active,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
 
+async def _resolve_site_coordinates(
+    *,
+    name: str | None,
+    address: str | None,
+    postcode: str | None,
+):
+    postcode_value = (postcode or "").strip() or None
+    address_value = (address or name or "").strip() or None
 
-async def _resolve_site_location(payload: SiteCreate | SiteUpdate):
     try:
-        resolved = await GeocodingService.resolve(
-            place_id=payload.geocode_place_id,
-            postcode=payload.postcode,
-            address_line_1=payload.address_line_1,
-            address_line_2=payload.address_line_2,
-            city=payload.city,
-            county=payload.county,
-            country=payload.country,
-            formatted_address=payload.formatted_address or payload.address,
-            lat=payload.lat,
-            lon=payload.lon,
-            allow_manual_override=payload.allow_manual_override,
-        )
-    except GeocodingError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return resolved
+        if postcode_value or address_value:
+            try:
+                resolved = await GeocodingService.resolve(
+                    postcode=postcode_value,
+                    address_line_1=address_value,
+                    formatted_address=(
+                        f"{address_value}, {postcode_value}"
+                        if address_value and postcode_value
+                        else address_value or postcode_value
+                    ),
+                )
+                return resolved.lat, resolved.lon
+            except Exception:
+                pass
+
+        if postcode_value:
+            try:
+                resolved = await GeocodingService.resolve(
+                    postcode=postcode_value,
+                    formatted_address=postcode_value,
+                )
+                return resolved.lat, resolved.lon
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+
+    return None, None
 
 
 @router.get('/organisations', response_model=list[OrganisationOut])
@@ -187,7 +199,6 @@ async def get_sites(
     allowed = {m.organisation_id for m in memberships}
     return [_map_site(row) for row in rows if row.organisation_id in allowed]
 
-
 @router.post('/sites', response_model=SiteOut)
 async def post_site(
     payload: SiteCreate,
@@ -195,30 +206,35 @@ async def post_site(
     user: User = Depends(get_current_user),
 ):
     await require_org_permission(session, user, payload.organisation_id, 'site:write')
-    resolved = await _resolve_site_location(payload)
-    row = await create_site(
-        session,
-        organisation_id=payload.organisation_id,
+
+    resolved_lat, resolved_lon = await _resolve_site_coordinates(
         name=payload.name,
-        code=payload.code,
-        address=payload.address or payload.formatted_address or resolved.display_name,
-        postcode=resolved.postcode or payload.postcode,
-        address_line_1=resolved.address_line_1 or payload.address_line_1,
-        address_line_2=resolved.address_line_2 or payload.address_line_2,
-        city=resolved.city or payload.city,
-        county=resolved.county or payload.county,
-        country=resolved.country or payload.country,
-        formatted_address=resolved.display_name or payload.formatted_address or payload.address,
-        geocode_place_id=resolved.place_id or payload.geocode_place_id,
-        geocode_source=resolved.source or payload.geocode_source,
-        geocode_confidence=resolved.confidence if resolved.confidence is not None else payload.geocode_confidence,
-        lat=resolved.lat,
-        lon=resolved.lon,
+        address=payload.address,
+        postcode=payload.postcode,
     )
-    await log_audit(session, organisation_id=row.organisation_id, actor_user_id=user.id, action='site.create', entity_type='site', entity_id=str(row.id), details=payload.model_dump())
-    await session.commit()
-    await session.refresh(row)
-    return _map_site(row)
+
+    try:
+        row = await create_site(
+            session,
+            organisation_id=payload.organisation_id,
+            name=payload.name,
+            code=payload.code,
+            address=payload.address or payload.name,
+            postcode=payload.postcode,
+            lat=resolved_lat,
+            lon=resolved_lon,
+            boundary_geojson=payload.boundary_geojson,
+        )
+        await session.commit()
+        await session.refresh(row)
+        return _map_site(row)
+
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"A site named '{payload.name}' already exists in this organisation."
+        ) from exc
 
 
 @router.get('/zones', response_model=list[ZoneOut])
@@ -303,55 +319,40 @@ async def patch_site(
     row = await session.get(Site, site_id)
     if row is None:
         raise HTTPException(status_code=404, detail='Site not found')
+
     await require_org_permission(session, user, row.organisation_id, 'site:write')
 
     patch_data = payload.model_dump(exclude_unset=True)
-    needs_geocode = any(
-        key in patch_data
-        for key in {
-            'address', 'postcode', 'address_line_1', 'address_line_2', 'city', 'county', 'country',
-            'formatted_address', 'geocode_place_id', 'lat', 'lon'
-        }
+
+    should_recalculate_coords = any(
+        key in patch_data for key in ('name', 'address', 'postcode')
     )
-    if needs_geocode:
-        merged = SiteCreate(
-            organisation_id=row.organisation_id,
-            name=patch_data.get('name', row.name),
-            code=patch_data.get('code', row.code),
-            address=patch_data.get('address', row.address),
-            postcode=patch_data.get('postcode', getattr(row, 'postcode', None)),
-            address_line_1=patch_data.get('address_line_1', getattr(row, 'address_line_1', None)),
-            address_line_2=patch_data.get('address_line_2', getattr(row, 'address_line_2', None)),
-            city=patch_data.get('city', getattr(row, 'city', None)),
-            county=patch_data.get('county', getattr(row, 'county', None)),
-            country=patch_data.get('country', getattr(row, 'country', None)),
-            formatted_address=patch_data.get('formatted_address', getattr(row, 'formatted_address', None)),
-            geocode_place_id=patch_data.get('geocode_place_id', getattr(row, 'geocode_place_id', None)),
-            geocode_source=patch_data.get('geocode_source', getattr(row, 'geocode_source', None)),
-            geocode_confidence=patch_data.get('geocode_confidence', getattr(row, 'geocode_confidence', None)),
-            lat=patch_data.get('lat', row.lat),
-            lon=patch_data.get('lon', row.lon),
-            allow_manual_override=patch_data.get('allow_manual_override', False),
+
+    if should_recalculate_coords:
+        final_name = patch_data.get('name', row.name)
+        final_address = patch_data.get('address', row.address)
+        final_postcode = patch_data.get('postcode', row.postcode)
+
+        resolved_lat, resolved_lon = await _resolve_site_coordinates(
+            name=final_name,
+            address=final_address,
+            postcode=final_postcode,
         )
-        resolved = await _resolve_site_location(merged)
-        patch_data.update({
-            'address': merged.address or merged.formatted_address or resolved.display_name,
-            'postcode': resolved.postcode or merged.postcode,
-            'address_line_1': resolved.address_line_1 or merged.address_line_1,
-            'address_line_2': resolved.address_line_2 or merged.address_line_2,
-            'city': resolved.city or merged.city,
-            'county': resolved.county or merged.county,
-            'country': resolved.country or merged.country,
-            'formatted_address': resolved.display_name or merged.formatted_address,
-            'geocode_place_id': resolved.place_id or merged.geocode_place_id,
-            'geocode_source': resolved.source or merged.geocode_source,
-            'geocode_confidence': resolved.confidence if resolved.confidence is not None else merged.geocode_confidence,
-            'lat': resolved.lat,
-            'lon': resolved.lon,
-        })
+
+        patch_data['lat'] = resolved_lat
+        patch_data['lon'] = resolved_lon
 
     updated = await update_site(session, site_id, **patch_data)
-    await log_audit(session, organisation_id=row.organisation_id, actor_user_id=user.id, action='site.update', entity_type='site', entity_id=str(site_id), details=patch_data)
+
+    await log_audit(
+        session,
+        organisation_id=row.organisation_id,
+        actor_user_id=user.id,
+        action='site.update',
+        entity_type='site',
+        entity_id=str(site_id),
+        details=patch_data,
+    )
     return _map_site(updated)
 
 

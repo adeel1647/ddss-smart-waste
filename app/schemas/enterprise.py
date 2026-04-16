@@ -8,7 +8,40 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 from app.services.geocoding import normalize_postcode
 
 MembershipRole = Literal['viewer', 'operator', 'manager', 'admin', 'owner']
+GeoJsonPoint = list[float]
+GeoJsonRing = list[GeoJsonPoint]
+GeoJsonPolygonCoordinates = list[GeoJsonRing]
 
+def validate_polygon_geojson(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+
+    if value.get("type") != "Polygon":
+        raise ValueError("boundary_geojson must be a GeoJSON Polygon")
+
+    coordinates = value.get("coordinates")
+    if not isinstance(coordinates, list) or not coordinates:
+        raise ValueError("boundary_geojson.coordinates must be a non-empty list")
+
+    outer_ring = coordinates[0]
+    if not isinstance(outer_ring, list) or len(outer_ring) < 4:
+        raise ValueError("Polygon outer ring must contain at least 4 points")
+
+    for point in outer_ring:
+        if not isinstance(point, list) or len(point) != 2:
+            raise ValueError("Each polygon point must be [lon, lat]")
+        lon, lat = point
+        if not isinstance(lon, (int, float)) or not isinstance(lat, (int, float)):
+            raise ValueError("Polygon coordinates must be numeric")
+        if lat < -90 or lat > 90:
+            raise ValueError("Latitude must be between -90 and 90")
+        if lon < -180 or lon > 180:
+            raise ValueError("Longitude must be between -180 and 180")
+
+    if outer_ring[0] != outer_ring[-1]:
+        raise ValueError("Polygon ring must be closed")
+
+    return value
 
 class OrganisationCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
@@ -32,20 +65,9 @@ class SiteCreate(BaseModel):
     code: str | None = None
     address: str | None = None
     postcode: str | None = None
-    address_line_1: str | None = None
-    address_line_2: str | None = None
-    city: str | None = None
-    county: str | None = None
-    country: str | None = 'United Kingdom'
-    formatted_address: str | None = None
-    geocode_place_id: str | None = None
-    geocode_source: str | None = None
-    geocode_confidence: float | None = Field(default=None, ge=0.0)
-    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
-    lon: float | None = Field(default=None, ge=-180.0, le=180.0)
-    allow_manual_override: bool = False
+    boundary_geojson: dict | None = None
 
-    @field_validator('code', 'address', 'postcode', 'address_line_1', 'address_line_2', 'city', 'county', 'country', 'formatted_address', 'geocode_place_id', 'geocode_source')
+    @field_validator('code', 'address', 'postcode')
     @classmethod
     def clean_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -53,15 +75,15 @@ class SiteCreate(BaseModel):
         value = value.strip()
         return value or None
 
+    @field_validator('boundary_geojson')
+    @classmethod
+    def validate_boundary(cls, value: dict | None) -> dict | None:
+        return validate_polygon_geojson(value)
+
     @model_validator(mode='after')
-    def validate_location_input(self):
-        has_coords = self.lat is not None and self.lon is not None
-        has_address = any([self.postcode, self.address, self.formatted_address, self.address_line_1, self.geocode_place_id])
-        if not has_coords and not has_address:
-            raise ValueError('Provide either lat/lon or an address/postcode to locate the site')
+    def normalize_values(self):
         self.postcode = normalize_postcode(self.postcode)
         return self
-
 
 class SiteOut(BaseModel):
     id: int
@@ -70,21 +92,12 @@ class SiteOut(BaseModel):
     code: str | None = None
     address: str | None = None
     postcode: str | None = None
-    address_line_1: str | None = None
-    address_line_2: str | None = None
-    city: str | None = None
-    county: str | None = None
-    country: str | None = None
-    formatted_address: str | None = None
-    geocode_place_id: str | None = None
-    geocode_source: str | None = None
-    geocode_confidence: float | None = None
     lat: float | None = None
     lon: float | None = None
+    boundary_geojson: dict | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime
-
 
 class ZoneCreate(BaseModel):
     site_id: int
@@ -115,21 +128,10 @@ class SiteUpdate(BaseModel):
     code: str | None = None
     address: str | None = None
     postcode: str | None = None
-    address_line_1: str | None = None
-    address_line_2: str | None = None
-    city: str | None = None
-    county: str | None = None
-    country: str | None = None
-    formatted_address: str | None = None
-    geocode_place_id: str | None = None
-    geocode_source: str | None = None
-    geocode_confidence: float | None = Field(default=None, ge=0.0)
-    lat: float | None = Field(default=None, ge=-90.0, le=90.0)
-    lon: float | None = Field(default=None, ge=-180.0, le=180.0)
+    boundary_geojson: dict | None = None
     is_active: bool | None = None
-    allow_manual_override: bool = False
 
-    @field_validator('code', 'address', 'postcode', 'address_line_1', 'address_line_2', 'city', 'county', 'country', 'formatted_address', 'geocode_place_id', 'geocode_source')
+    @field_validator('code', 'address', 'postcode')
     @classmethod
     def clean_text(cls, value: str | None) -> str | None:
         if value is None:
@@ -137,6 +139,15 @@ class SiteUpdate(BaseModel):
         value = value.strip()
         return value or None
 
+    @field_validator('boundary_geojson')
+    @classmethod
+    def validate_boundary(cls, value: dict | None) -> dict | None:
+        return validate_polygon_geojson(value)
+
+    @model_validator(mode='after')
+    def normalize_values(self):
+        self.postcode = normalize_postcode(self.postcode)
+        return self
 
 class ZoneUpdate(BaseModel):
     name: str | None = None
