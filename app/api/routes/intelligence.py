@@ -53,6 +53,7 @@ async def get_latest_risk_scores(
 
 @router.get('/anomalies', response_model=AnomalyListResponse)
 async def get_anomalies(
+    request: Request,
     organisation_id: int | None = Query(default=None),
     hours: int = Query(default=48, ge=6, le=336),
     limit: int = Query(default=50, ge=1, le=200),
@@ -62,9 +63,17 @@ async def get_anomalies(
     ctx = await get_active_org_context(session, user, organisation_id)
     if ctx.organisation_id is not None:
         await require_org_permission(session, user, ctx.organisation_id, 'intelligence:read')
-    items = await build_anomaly_events(session, organisation_id=ctx.organisation_id, hours=hours, limit=limit)
-    return {'items': [AnomalyEventOut(**item) for item in items]}
 
+    forecaster = request.app.state.forecast_service
+
+    items = await build_anomaly_events(
+        session,
+        forecaster=forecaster,
+        organisation_id=ctx.organisation_id,
+        hours=hours,
+        limit=limit,
+    )
+    return {'items': [AnomalyEventOut(**item) for item in items]}
 
 @router.get('/explain/bin/{bin_id}', response_model=ExplainabilityOut)
 async def get_bin_explainability(
@@ -158,6 +167,7 @@ async def post_model_metric_snapshot(
 
 @router.get('/monitoring/summary', response_model=MonitoringSummaryOut)
 async def get_model_monitoring_summary(
+    request: Request,
     organisation_id: int | None = Query(default=None),
     model_name: str | None = Query(default=None),
     days: int = Query(default=14, ge=1, le=180),
@@ -167,8 +177,18 @@ async def get_model_monitoring_summary(
     ctx = await get_active_org_context(session, user, organisation_id)
     if ctx.organisation_id is not None:
         await require_org_permission(session, user, ctx.organisation_id, 'model_monitoring:read')
-    return MonitoringSummaryOut(**(await build_monitoring_summary(session, model_name=model_name, days=days)))
 
+    forecaster = getattr(request.app.state, "forecast_service", None)
+
+    return MonitoringSummaryOut(**(
+        await build_monitoring_summary(
+            session,
+            model_name=model_name,
+            days=days,
+            organisation_id=ctx.organisation_id,
+            forecaster=forecaster,
+        )
+    ))
 
 def _map_case(row) -> ContaminationCaseOut:
     return ContaminationCaseOut(

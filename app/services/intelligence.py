@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from app.services.model_store import ModelStore
 import json
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -178,68 +178,340 @@ async def build_explainability(session: AsyncSession, *, forecaster: ForecastSer
     }
 
 
-async def build_anomaly_events(session: AsyncSession, *, organisation_id: int | None = None, hours: int = 48, limit: int = 50) -> list[dict]:
-    bins = await list_candidate_bins(session, organisation_id=organisation_id, limit=max(limit, 50))
+async def build_anomaly_events(
+    session: AsyncSession,
+    *,
+    forecaster: ForecastService,
+    organisation_id: int | None = None,
+    hours: int = 48,
+    limit: int = 50,
+    ) -> list[dict]:
+    bins = await list_candidate_bins(session, organisation_id=organisation_id, limit=max(limit, 100))
     if not bins:
         return []
+
     bin_ids = [b.bin_id for b in bins]
     telemetry_series = await get_recent_telemetry_series(session, bin_ids, hours=hours)
+    device_map = await get_device_status_map(session, bin_ids)
+    now = datetime.now(timezone.utc)
+
     items: list[dict] = []
+
     for row in bins:
         series = telemetry_series.get(row.bin_id, [])
         if len(series) < 2:
             continue
+
         latest = series[-1]
-        expected = mean(float(x.fill_level) for x in series[:-1]) if len(series) > 1 else float(latest.fill_level)
-        delta = float(latest.fill_level) - expected
+        previous = series[:-1]
+
+        expected = mean(float(x.fill_level) for x in previous) if previous else float(latest.fill_level)
+        latest_fill = float(latest.fill_level)
+        delta = latest_fill - expected
+
+        stale_hours = max(0.0, (now - latest.ts).total_seconds() / 3600.0)
         anomaly_score = _clamp(abs(delta) / 35.0)
-        flags = []
-        if delta >= 20:
-            flags.append('SPIKE')
-        if delta <= -20:
-            flags.append('DROP')
-        if (datetime.now(timezone.utc) - latest.ts).total_seconds() / 3600.0 >= 8:
-            flags.append('STALE')
+
+        flags: list[str] = []
+
+        if delta >= 15:
+            flags.append("SPIKE")
+        if delta <= -15:
+            flags.append("DROP")
+
+        if stale_hours >= 8:
+            flags.append("STALE")
             anomaly_score = _clamp(anomaly_score + 0.25)
-        if anomaly_score < 0.45:
+
+        device_issues = device_map.get(row.bin_id, [])
+        if any(d.status in {"offline", "maintenance"} for d in device_issues):
+            flags.append("DEVICE_HEALTH_RISK")
+            anomaly_score = _clamp(anomaly_score + 0.15)
+
+        # Lower threshold so page is useful
+        if anomaly_score < 0.25:
             continue
+
         items.append({
-            'bin_id': row.bin_id,
-            'organisation_id': row.organisation_id,
-            'site_id': row.site_id,
-            'zone_id': row.zone_id,
-            'latest_fill': _round2(float(latest.fill_level)),
-            'expected_fill': _round2(expected),
-            'delta': _round2(delta),
-            'anomaly_score': _round2(anomaly_score),
-            'flags': flags,
-            'ts': latest.ts,
+            "bin_id": row.bin_id,
+            "organisation_id": row.organisation_id,
+            "site_id": row.site_id,
+            "zone_id": row.zone_id,
+            "latest_fill": _round2(latest_fill),
+            "expected_fill": _round2(expected),
+            "delta": _round2(delta),
+            "anomaly_score": _round2(anomaly_score),
+            "flags": flags,
+            "ts": latest.ts,
         })
-    items.sort(key=lambda x: x['anomaly_score'], reverse=True)
+
+    items.sort(key=lambda x: (x["anomaly_score"], abs(x["delta"])), reverse=True)
     return items[:limit]
 
 
-async def build_monitoring_summary(session: AsyncSession, *, model_name: str | None = None, days: int = 14) -> dict:
+async def build_monitoring_summary(
+    session: AsyncSession,
+    *,
+    model_name: str | None = None,
+    days: int = 14,
+    organisation_id: int | None = None,
+    forecaster: ForecastService | None = None,
+) -> dict:
     rows = await list_model_metric_snapshots(session, model_name=model_name, days=days, limit=500)
-    grouped: dict[tuple[str, str], list] = defaultdict(list)
-    for row in rows:
-        grouped[(row.model_name, row.metric_name)].append(row)
-    metrics = []
-    resolved_model_name = model_name
-    for (group_model_name, metric_name), bucket in grouped.items():
-        latest = bucket[0]
-        resolved_model_name = resolved_model_name or group_model_name
+
+    # Existing snapshot-based behavior
+    if rows:
+        grouped: dict[tuple[str, str], list] = defaultdict(list)
+        for row in rows:
+            grouped[(row.model_name, row.metric_name)].append(row)
+
+        metrics = []
+        resolved_model_name = model_name
+        for (group_model_name, metric_name), bucket in grouped.items():
+            latest = bucket[0]
+            resolved_model_name = resolved_model_name or group_model_name
+            metrics.append({
+                'metric_name': metric_name,
+                'latest_value': round(float(latest.metric_value), 4),
+                'status': latest.status,
+                'sample_size': latest.sample_size,
+                'model_version': latest.model_version,
+                'last_created_at': latest.created_at,
+            })
+
+        metrics.sort(key=lambda x: x['metric_name'])
+        return {
+            'model_name': resolved_model_name or 'all_models',
+            'days': days,
+            'metrics': metrics,
+        }
+
+    # Live fallback when no snapshots exist
+    bins = await list_candidate_bins(session, organisation_id=organisation_id, limit=300)
+    bin_ids = [b.bin_id for b in bins]
+    latest_cls = await get_latest_classification_map(session, bin_ids)
+    telemetry_series = await get_recent_telemetry_series(session, bin_ids, hours=max(48, min(days * 24, 24 * 14)))
+    health = ModelStore.get_health()
+    now = datetime.now(timezone.utc)
+
+    risk_items: list[dict] = []
+    if forecaster is not None and ModelStore.get_forecaster() is not None:
+        try:
+            risk_items = await build_risk_scores(
+                session,
+                forecaster=forecaster,
+                organisation_id=organisation_id,
+                limit=300,
+            )
+        except Exception:
+            risk_items = []
+
+    def status_from_thresholds(
+        value: float,
+        *,
+        warning: float,
+        critical: float,
+        higher_is_worse: bool = True,
+    ) -> str:
+        if higher_is_worse:
+            if value >= critical:
+                return "critical"
+            if value >= warning:
+                return "warning"
+            return "ok"
+        else:
+            if value <= critical:
+                return "critical"
+            if value <= warning:
+                return "warning"
+            return "ok"
+
+    metrics: list[dict] = []
+
+    def add_metric(
+        group_model_name: str,
+        metric_name: str,
+        latest_value: float,
+        status: str,
+        sample_size: int | None = None,
+        model_version: str | None = None,
+    ) -> None:
         metrics.append({
-            'metric_name': metric_name,
-            'latest_value': round(float(latest.metric_value), 4),
-            'status': latest.status,
-            'sample_size': latest.sample_size,
-            'model_version': latest.model_version,
-            'last_created_at': latest.created_at,
+            "model_name": group_model_name,
+            "metric_name": metric_name,
+            "latest_value": round(float(latest_value), 4),
+            "status": status,
+            "sample_size": sample_size,
+            "model_version": model_version,
+            "last_created_at": now,
         })
-    metrics.sort(key=lambda x: x['metric_name'])
+
+    total_bins = len(bin_ids)
+
+    # waste_classifier (real loaded model)
+    classifier_meta = health.get("classifier", {})
+    classifier_loaded = 1.0 if classifier_meta.get("loaded") else 0.0
+    cls_confidences = [float(x.confidence) for x in latest_cls.values()]
+    avg_confidence = mean(cls_confidences) if cls_confidences else 0.0
+    cls_coverage = (len(latest_cls) / total_bins) if total_bins else 0.0
+
+    add_metric(
+        "waste_classifier",
+        "model_loaded",
+        classifier_loaded,
+        "ok" if classifier_loaded == 1.0 else "critical",
+        sample_size=len(latest_cls),
+        model_version=classifier_meta.get("version"),
+    )
+    add_metric(
+        "waste_classifier",
+        "avg_confidence",
+        avg_confidence,
+        status_from_thresholds(avg_confidence, warning=0.65, critical=0.45, higher_is_worse=False),
+        sample_size=len(cls_confidences),
+        model_version=classifier_meta.get("version"),
+    )
+    add_metric(
+        "waste_classifier",
+        "coverage_rate",
+        cls_coverage,
+        status_from_thresholds(cls_coverage, warning=0.50, critical=0.20, higher_is_worse=False),
+        sample_size=total_bins,
+        model_version=classifier_meta.get("version"),
+    )
+
+    # fill_predictor (real loaded model)
+    forecaster_meta = health.get("forecaster", {})
+    forecaster_loaded = 1.0 if forecaster_meta.get("loaded") else 0.0
+    risk_coverage = (len(risk_items) / total_bins) if total_bins else 0.0
+    avg_predicted_fill = (
+        mean([(float(item["predicted_fill_6h"]) / 100.0) for item in risk_items])
+        if risk_items else 0.0
+    )
+
+    add_metric(
+        "fill_predictor",
+        "model_loaded",
+        forecaster_loaded,
+        "ok" if forecaster_loaded == 1.0 else "critical",
+        sample_size=len(risk_items),
+        model_version=forecaster_meta.get("version"),
+    )
+    add_metric(
+        "fill_predictor",
+        "coverage_rate",
+        risk_coverage,
+        status_from_thresholds(risk_coverage, warning=0.50, critical=0.20, higher_is_worse=False),
+        sample_size=total_bins,
+        model_version=forecaster_meta.get("version"),
+    )
+    add_metric(
+        "fill_predictor",
+        "avg_predicted_fill_rate",
+        avg_predicted_fill,
+        status_from_thresholds(avg_predicted_fill, warning=0.70, critical=0.90, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version=forecaster_meta.get("version"),
+    )
+
+    # overflow_risk (derived intelligence component)
+    avg_overflow_risk = (
+        mean([float(item["overflow_risk_probability"]) for item in risk_items])
+        if risk_items else 0.0
+    )
+    high_overflow_rate = (
+        sum(1 for item in risk_items if float(item["overflow_risk_probability"]) >= 0.7) / len(risk_items)
+        if risk_items else 0.0
+    )
+
+    add_metric(
+        "overflow_risk",
+        "avg_overflow_risk",
+        avg_overflow_risk,
+        status_from_thresholds(avg_overflow_risk, warning=0.50, critical=0.75, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+    add_metric(
+        "overflow_risk",
+        "high_risk_rate",
+        high_overflow_rate,
+        status_from_thresholds(high_overflow_rate, warning=0.15, critical=0.30, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+
+    # anomaly_detector (derived intelligence component)
+    avg_anomaly_score = (
+        mean([float(item["anomaly_score"]) for item in risk_items])
+        if risk_items else 0.0
+    )
+    anomaly_rate = (
+        sum(1 for item in risk_items if float(item["anomaly_score"]) >= 0.5) / len(risk_items)
+        if risk_items else 0.0
+    )
+
+    add_metric(
+        "anomaly_detector",
+        "avg_anomaly_score",
+        avg_anomaly_score,
+        status_from_thresholds(avg_anomaly_score, warning=0.45, critical=0.70, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+    add_metric(
+        "anomaly_detector",
+        "anomaly_rate",
+        anomaly_rate,
+        status_from_thresholds(anomaly_rate, warning=0.15, critical=0.35, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+
+    # contamination_classifier (derived intelligence component)
+    avg_contamination_risk = (
+        mean([float(item["contamination_risk_probability"]) for item in risk_items])
+        if risk_items else 0.0
+    )
+    contamination_high_risk_rate = (
+        sum(1 for item in risk_items if float(item["contamination_risk_probability"]) >= 0.5) / len(risk_items)
+        if risk_items else 0.0
+    )
+
+    add_metric(
+        "contamination_classifier",
+        "avg_contamination_risk",
+        avg_contamination_risk,
+        status_from_thresholds(avg_contamination_risk, warning=0.35, critical=0.60, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+    add_metric(
+        "contamination_classifier",
+        "high_risk_rate",
+        contamination_high_risk_rate,
+        status_from_thresholds(contamination_high_risk_rate, warning=0.10, critical=0.25, higher_is_worse=True),
+        sample_size=len(risk_items),
+        model_version="heuristic-v1",
+    )
+
+    if model_name:
+        metrics = [m for m in metrics if m["model_name"] == model_name]
+
+    metrics.sort(key=lambda x: (x["model_name"], x["metric_name"]))
+
     return {
-        'model_name': resolved_model_name or 'all_models',
-        'days': days,
-        'metrics': metrics,
+        "model_name": model_name or "all_models",
+        "days": days,
+        "metrics": [
+            {
+                "metric_name": m["metric_name"],
+                "latest_value": m["latest_value"],
+                "status": m["status"],
+                "sample_size": m["sample_size"],
+                "model_version": m["model_version"],
+                "last_created_at": m["last_created_at"],
+            }
+            for m in metrics
+        ],
     }
