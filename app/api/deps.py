@@ -247,12 +247,11 @@ async def require_org_permission(
     user: User,
     organisation_id: int,
     permission: str,
-) -> OrganisationMembership | None:
+    ) -> OrganisationMembership | None:
     ctx = await get_active_org_context(session, user, organisation_id)
-    if not role_has_permission(ctx.role, permission):
+    if not user_has_permission(user, ctx.role, permission):
         raise _forbidden(f'Missing permission: {permission}')
     return ctx
-
 
 async def require_org_role(
     session: AsyncSession,
@@ -287,8 +286,17 @@ async def assert_any_org_permission(
     permission: str,
 ) -> int | None:
     ids = [int(org_id) for org_id in organisation_ids]
+
+    if is_demo_user(user):
+        memberships = await get_user_memberships(session, user.id)
+        for membership in memberships:
+            if membership.organisation_id in ids and user_has_permission(user, membership.role, permission):
+                return membership.organisation_id
+        raise _forbidden(f'No organisation access with permission {permission}')
+
     if user.platform_role in {'owner', 'admin'}:
         return ids[0] if ids else None
+
     memberships = await get_user_memberships(session, user.id)
     for membership in memberships:
         if membership.organisation_id in ids and role_has_permission(membership.role, permission):
@@ -309,9 +317,16 @@ def require_roles(*roles: str):
         db: AsyncSession = Depends(get_session),
         user: User = Depends(get_current_user),
     ):
+        if is_demo_user(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail='Demo user has read-only access for this action',
+            )
+
         if user.platform_role in {'owner', 'admin'}:
             if user.platform_role in roles or 'owner' in roles or 'admin' in roles:
                 return user
+
         ctx = await get_active_org_context(db, user)
         if ctx.role not in roles:
             raise HTTPException(
@@ -320,3 +335,46 @@ def require_roles(*roles: str):
             )
         return user
     return checker
+
+
+DEMO_USER_EMAIL = 'demo@ddss.com'
+
+DEMO_ALLOWED_PERMISSIONS: set[str] = {
+    # Full app read access
+    'dashboard:read',
+    'bin:read',
+    'alert:read',
+    'report:read',
+    'org:read',
+    'site:read',
+    'zone:read',
+    'analytics:read',
+    'intelligence:read',
+    'routing:read',
+    'ddss:read',
+    'telemetry:read',
+    'device:read',
+    'audit:read',
+    'membership:read',
+    'notification:read',
+    'contamination:read',
+    'model_monitoring:read',
+    'work_order:read',
+
+    # Demo user can fully test classify
+    'classify:read',
+    'classify:write',
+}
+
+def is_demo_user(user: User | None) -> bool:
+    return bool(user and user.email and user.email.lower().strip() == DEMO_USER_EMAIL)
+
+
+def user_has_permission(user: User, role: str, permission: str) -> bool:
+    if is_demo_user(user):
+        return permission in DEMO_ALLOWED_PERMISSIONS
+
+    if role in {'owner', 'admin'}:
+        return True
+
+    return permission in ROLE_PERMISSIONS.get(role, set())
